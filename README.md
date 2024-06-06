@@ -1,5 +1,5 @@
 # 📝我的搜索-脚本wiki💖
-![License](https://img.shields.io/github/license/My-Search/my-search)  ![github](https://img.shields.io/badge/我的搜索-脚本-brightgreen.svg) 
+![License](https://img.shields.io/github/license/My-Search/my-search)  <a href="https://github.com/My-Search/my-search">![github](https://img.shields.io/badge/我的搜索-脚本-brightgreen.svg)</a>
 
 
 
