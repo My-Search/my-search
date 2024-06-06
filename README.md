@@ -1,5 +1,7 @@
 # 📝我的搜索-脚本wiki💖
-![License](https://img.shields.io/github/license/My-Search/my-search) <h1 align="center" style="margin: 30px 0 30px; font-weight: bold;">我的搜索</h1>
+![License](https://img.shields.io/github/license/My-Search/my-search)  ![github](https://img.shields.io/badge/我的搜索-脚本-brightgreen.svg) 
+
+
 
 我的搜索是一个可自定义内容搜索的脚本应用，比如你收集了很多的网站、软件，想要快速检索它，这也是这个脚本应用的初心！
 
