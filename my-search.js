@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         我的搜索
 // @namespace    http://tampermonkey.net/
-// @version      6.6.8
+// @version      6.6.9
 // @description  打造订阅式搜索，让我的搜索，只搜精品！
 // @license MIT
 // @author       zhuangjie
@@ -2348,9 +2348,10 @@
         // 在添加前，进行额外处理添加，如给有”{keyword}“的url搜索项添加”可搜索“标签
         for(let searchItem of searchData) {
             let resource = searchItem.resource;
-            let isSearchableItem = /\[\[[^\[\]]+keyword[^\[\]]+\]\]/.test(resource);
+            let isHttpUrl =/^[^\n]*\.[^\n]*$/.test(`${resource}`.trim());
+            let isSearchable = /\[\[[^\[\]]+keyword[^\[\]]+\]\]/.test(resource);
             // 判断是否为可搜索
-            if( ! isSearchableItem || searchItem.type == "sketch" || /<\s*br\s*\/\s*>/.test(resource) ) continue;
+            if( resource == null || !isHttpUrl || !isSearchable ) continue;
             searchItem.title = registry.searchData.searchProFlag+searchItem.title;
         }
         return searchData;
