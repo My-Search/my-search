@@ -19,7 +19,7 @@
 // @require      https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js
 // @resource code-css https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/default.min.css
 
-// @require  https://cdn.jsdelivr.net/gh/My-Search/string-overlap-matching-degree@1.0.0/string-overlap-matching-degree.js
+// @require https://update.greasyfork.org/scripts/501646/1416066/string-overlap-matching-degree.js
 
 // @grant        window.onurlchange
 // @grant        GM_setValue
