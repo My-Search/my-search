@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         我的搜索
 // @namespace    http://tampermonkey.net/
-// @version      6.7.3
+// @version      6.7.4
 // @description  打造订阅式搜索，让我的搜索，只搜精品！
 // @license MIT
 // @author       zhuangjie
@@ -278,7 +278,7 @@
     }*/
 
     // ==偏业务工具函数==
-        // 使用责任链模式——对pageText进行操作的工具
+    // 使用责任链模式——对pageText进行操作的工具
     const pageTextHandleChains = {
         pageText: "",
         setPageText(newPageText) {
@@ -424,8 +424,8 @@
             history.unshift({...item}) // 必须拷贝
             // 清理掉索引，索引只是本次数据加载有效的，而我们存储的历史数据是不随数据加载而改变的，也就是如果缓存索引会失效，没有索引它会自己找，当然我们会提供我们这里的数据给它找，如果在全局数据中匹配不到的话
             history.forEach(_item=>{
-               delete _item.index;
-               return _item;
+                delete _item.index;
+                return _item;
             })
             // 缓存历史数据
             cache.set(SelectHistoryRecorder.HISTORY_CACHE_KEY,history);
@@ -475,54 +475,54 @@
     }
     // 将多个
     function parseTis(bodyText) {
-       // 提取整个tis标签的正则
-       const regex = /(<\s*tis::http[^<>]+\/\s*>)/gm;
-       let raw = captureRegEx(regex,bodyText);
-       if(raw != null) {
-          return raw.map(item=>item[1])
-       }
+        // 提取整个tis标签的正则
+        const regex = /(<\s*tis::http[^<>]+\/\s*>)/gm;
+        let raw = captureRegEx(regex,bodyText);
+        if(raw != null) {
+            return raw.map(item=>item[1])
+        }
         return null;
     }
     let USER_GITHUB_TOKEN_CACHE_KEY = "USER_GITHUB_TOKEN_CACHE_KEY";
     let GithubAPI = {
-       token: cache.get(USER_GITHUB_TOKEN_CACHE_KEY),
-       setToken(token) {
-           if(token != null) this.token = token;
-           if(this.token == null) {
-              token = prompt("请输入您的github Token (只会在您的本地保存)：")
-              // 获取的内容无效
-              if(token == null || token == "") return this;
-              // 内容有效-设置
-              cache.set(USER_GITHUB_TOKEN_CACHE_KEY,this.token = token);
-           }
-           return this;
-       },
-       clearToken() {
-          cache.remove(USER_GITHUB_TOKEN_CACHE_KEY)
-          this.token = null;
-       },
-       getToken(isRequest = false) {
-          if(this.token == null && isRequest) this.setToken();
-          return this.token;
-       },
-       baseRequest(type,url,{query,body}={},header = {}) {
-          if(this.token != null && header.Authorization == null) header.Authorization = "token "+this.token;
-          query = {...query,time:new Date().getTime()}
-          return request(type, url, { query,body },header);
-       },
-       getUserInfo() {
-         return this.baseRequest("GET","https://api.github.com/user")
-       },
-       commitIssues(body) {
-         return this.baseRequest("POST","https://api.github.com/repos/My-Search/TisHub/issues",{body})
-       },
-       getTisForIssues(state) {
-          let query = null;
-          if(state != null) query = {state};
-          let token = this.token;
-          if(token == null) token = atob("Z2hwX1hWcVVYcWtZRlg2Tk5sRlVtWDMwSWN3RWtDdVZJSzJ0ZXNQUw=="); // 该token没有什么权限，只用于访问不受限
-          return this.baseRequest("GET","https://api.github.com/repos/My-Search/TisHub/issues",{query},{Authorization:"token "+token})
-       }
+        token: cache.get(USER_GITHUB_TOKEN_CACHE_KEY),
+        setToken(token) {
+            if(token != null) this.token = token;
+            if(this.token == null) {
+                token = prompt("请输入您的github Token (只会在您的本地保存)：")
+                // 获取的内容无效
+                if(token == null || token == "") return this;
+                // 内容有效-设置
+                cache.set(USER_GITHUB_TOKEN_CACHE_KEY,this.token = token);
+            }
+            return this;
+        },
+        clearToken() {
+            cache.remove(USER_GITHUB_TOKEN_CACHE_KEY)
+            this.token = null;
+        },
+        getToken(isRequest = false) {
+            if(this.token == null && isRequest) this.setToken();
+            return this.token;
+        },
+        baseRequest(type,url,{query,body}={},header = {}) {
+            if(this.token != null && header.Authorization == null) header.Authorization = "token "+this.token;
+            query = {...query,time:new Date().getTime()}
+            return request(type, url, { query,body },header);
+        },
+        getUserInfo() {
+            return this.baseRequest("GET","https://api.github.com/user")
+        },
+        commitIssues(body) {
+            return this.baseRequest("POST","https://api.github.com/repos/My-Search/TisHub/issues",{body})
+        },
+        getTisForIssues(state) {
+            let query = null;
+            if(state != null) query = {state};
+            let token = this.token;
+            if(token == null) token = atob("Z2hwX1hWcVVYcWtZRlg2Tk5sRlVtWDMwSWN3RWtDdVZJSzJ0ZXNQUw=="); // 该token没有什么权限，只用于访问不受限
+            return this.baseRequest("GET","https://api.github.com/repos/My-Search/TisHub/issues",{query},{Authorization:"token "+token})
+        }
     }
 
     // 从订阅标签中提取订阅链接
@@ -540,48 +540,48 @@
             }
             return source;
         },
-       getTisHubAllTis(filterList = []) {
-          return new Promise((resolve,reject)=>{
-             let openIssuesTisPromise = this.getOpenIssuesTis();
-             let result = [];
-             return Promise.all([ this.getOpenIssuesTis(), this.getClosedIssuesTis() ]).then(values=>{
-                for(let value of values) {
-                   if(value == null ) continue;
-                   for(let tisListObj of value) {
-                      if(tisListObj != null ) result.push(...tisListObj.tisList)
-                   }
-                }
-                // 过滤并提交结果
-                 resolve(this.tisFilter(result,filterList));
-             })
-          })
-       },
-       getTisForIssues(state) {
-           return new Promise((resolve,reject)=>{
-               GithubAPI.getTisForIssues(state).then(response=>{
-                   if(response != null && Array.isArray(response)) {
-                       resolve(response.map(obj=>{return {
-                           owner: obj.user.login,
-                           ownerProfile: obj.user.html_url,
-                           title: obj.title,
-                           tisList: parseTis(obj.body),
-                           status: obj.state
-                       }}))
-                   }
-               }).catch(error=>resolve([]));
-           })
-       },
-       getOpenIssuesTis() {
-         return this.getTisForIssues(null);
-       },
-       getClosedIssuesTis() {
-          return this.getTisForIssues("closed");
-       },
-       tisListToTisText(tisList) {
-          let text = "";
-          for(let tis of tisList) text += tis.tisList;
-          return text;
-       }
+        getTisHubAllTis(filterList = []) {
+            return new Promise((resolve,reject)=>{
+                let openIssuesTisPromise = this.getOpenIssuesTis();
+                let result = [];
+                return Promise.all([ this.getOpenIssuesTis(), this.getClosedIssuesTis() ]).then(values=>{
+                    for(let value of values) {
+                        if(value == null ) continue;
+                        for(let tisListObj of value) {
+                            if(tisListObj != null ) result.push(...tisListObj.tisList)
+                        }
+                    }
+                    // 过滤并提交结果
+                    resolve(this.tisFilter(result,filterList));
+                })
+            })
+        },
+        getTisForIssues(state) {
+            return new Promise((resolve,reject)=>{
+                GithubAPI.getTisForIssues(state).then(response=>{
+                    if(response != null && Array.isArray(response)) {
+                        resolve(response.map(obj=>{return {
+                            owner: obj.user.login,
+                            ownerProfile: obj.user.html_url,
+                            title: obj.title,
+                            tisList: parseTis(obj.body),
+                            status: obj.state
+                        }}))
+                    }
+                }).catch(error=>resolve([]));
+            })
+        },
+        getOpenIssuesTis() {
+            return this.getTisForIssues(null);
+        },
+        getClosedIssuesTis() {
+            return this.getTisForIssues("closed");
+        },
+        tisListToTisText(tisList) {
+            let text = "";
+            for(let tis of tisList) text += tis.tisList;
+            return text;
+        }
     }
 
     // 全局注册表
@@ -715,24 +715,24 @@
                 // 如果数据在挂载后面已经更新了，重新加载数据到全局中
                 console.log("目标：",updateDataTime > this.dataMountTime)
                 if(this.data == null || updateDataTime > this.dataMountTime) {
-                   console.logout("== 数据未加载或已检查到在其它页面已重新更新数据 ==")
-                   this.setData(data);
+                    console.logout("== 数据未加载或已检查到在其它页面已重新更新数据 ==")
+                    this.setData(data);
                 }
                 return this.data;
             },
             // 根据keys(由idFun决定)从data中匹配items
             matchItemsByKeys: function (keys = []) {
-               let that = this;
-               if(keys.length == 0) return [];
-               // 有keys转items
-               let items = keys.map(key=>{
-                   for(let item of that.data) {
-                      if(that.idFun(item) == key) return item;
-                   }
-                   return null;
-               })
-               // 对数组keys去空，注意此时keys已经是items了
-               return items.filter(item => item != null);
+                let that = this;
+                if(keys.length == 0) return [];
+                // 有keys转items
+                let items = keys.map(key=>{
+                    for(let item of that.data) {
+                        if(that.idFun(item) == key) return item;
+                    }
+                    return null;
+                })
+                // 对数组keys去空，注意此时keys已经是items了
+                return items.filter(item => item != null);
             },
             specialKeyword: { // 特殊的keyword
                 new: "<new>",
@@ -746,7 +746,7 @@
                 if(matchData == null ) matchData = this.data;
                 for(let item of matchData) {
                     if( (item.title.includes(title) || title.includes(item.title) )
-                      && ( item.desc.includes(desc) || desc.includes(item.desc) )) return item;
+                       && ( item.desc.includes(desc) || desc.includes(item.desc) )) return item;
                 }
                 return null;
             },
@@ -778,7 +778,7 @@
                     for(let subscriptionRegular of Object.keys(this.event)) {
                         const regex = new RegExp(subscriptionRegular,"i"); // 将正则字符串转换为正则表达式对象
                         if(regex.test(rawKeyword) && typeof this.event[subscriptionRegular] == "function" ) {
-                           return this.event[subscriptionRegular](search,rawKeyword);
+                            return this.event[subscriptionRegular](search,rawKeyword);
                         }
                     }
                     let result = search(rawKeyword);
@@ -902,8 +902,8 @@
                 }
             })(),
             isSearchPro: function() {
-               let keyword = $("#my_search_input").val()
-               return keyword.includes(this.searchBoundary);
+                let keyword = $("#my_search_input").val()
+                return keyword.includes(this.searchBoundary);
             },
             searchProFlag: "[可搜索]"
         }
@@ -914,46 +914,46 @@
     let autoRunStringScript = {
         cacheKey : "autoRunStringScriptKey",
         getData() {
-           let scripts = cache.get(this.cacheKey)??{};
+            let scripts = cache.get(this.cacheKey)??{};
             let keys = Object.keys(scripts);
             for(let key of keys) {
-               let time = scripts[key].timeout;
-               if(Date.now() > time) delete scripts[key];
+                let time = scripts[key].timeout;
+                if(Date.now() > time) delete scripts[key];
             }
             cache.set(this.cacheKey,scripts);
             return scripts;
         },
         add(target,funStr,effectiveTime = 5000) {
-           if(target == null || ! target.trim().startsWith("http")) return;
-           let data = this.getData();
+            if(target == null || ! target.trim().startsWith("http")) return;
+            let data = this.getData();
             data[target.trim()] = {
-              timeout: Date.now()+effectiveTime,
-              handle: funStr
+                timeout: Date.now()+effectiveTime,
+                handle: funStr
             }
             cache.set(this.cacheKey,data);
         },
         run() {
-           let currentPageUrl = document.URL;
-           let data = this.getData();
-           let keys = Object.keys(data);
-           let targetObj = null;
-           for(let key of keys) {
-              if(key.startsWith(currentPageUrl) || currentPageUrl.startsWith(key)) targetObj = data[key];
-           }
-           if(targetObj != null) {
-              // 从data中失去，再执行
-              delete data[currentPageUrl];
-              let handle = targetObj.handle;
-              if(handle == null) return;
-              new Function('$',handle)($);
-           }
+            let currentPageUrl = document.URL;
+            let data = this.getData();
+            let keys = Object.keys(data);
+            let targetObj = null;
+            for(let key of keys) {
+                if(key.startsWith(currentPageUrl) || currentPageUrl.startsWith(key)) targetObj = data[key];
+            }
+            if(targetObj != null) {
+                // 从data中失去，再执行
+                delete data[currentPageUrl];
+                let handle = targetObj.handle;
+                if(handle == null) return;
+                new Function('$',handle)($);
+            }
         }
     }
     // 页面加载执行
     autoRunStringScript.run();
     // 添加页面模拟脚本
     function addPageSimulatorScript(url,scriptStr) {
-       scriptStr = `function exector(handle) {
+        scriptStr = `function exector(handle) {
             function selector(select, all = false) {
                 return all ? document.querySelectorAll(select) : document.querySelector(select);
             }
@@ -997,7 +997,7 @@
         window.onload = function () {
             exector(${scriptStr})
         }`;
-       autoRunStringScript.add(url,scriptStr,6000);
+        autoRunStringScript.add(url,scriptStr,6000);
     }
 
 
@@ -1087,24 +1087,24 @@
     }
     // 加载html
     function loadHtmlString(html) {
-       // 创建一个新的 div 元素
-      var newDiv = document.createElement("div");
-      // 设置新的 div 的内容为要追加的 HTML 字符串
-      newDiv.innerHTML = html;
-      // 将新的 div 追加到 body 的末尾
-      document.body.appendChild(newDiv);
-      return newDiv;
+        // 创建一个新的 div 元素
+        var newDiv = document.createElement("div");
+        // 设置新的 div 的内容为要追加的 HTML 字符串
+        newDiv.innerHTML = html;
+        // 将新的 div 追加到 body 的末尾
+        document.body.appendChild(newDiv);
+        return newDiv;
     }
     // Div方式的Page页（比如构建配置面板视图）
     function DivPage(cssStr,htmlStr,handle) {
         let style = loadStyleString(cssStr);
         let div = loadHtmlString(htmlStr);
         function selector(select,isAll = false) {
-           if(isAll) {
-              return div.querySelectorAll(select);
-           }else {
-              return div.querySelector(select);
-           }
+            if(isAll) {
+                return div.querySelectorAll(select);
+            }else {
+                return div.querySelector(select);
+            }
         }
         function remove() {
             div.remove();
@@ -1919,14 +1919,14 @@
          }
       </fetchFun>
     `;
-     return new Promise(async (resolve,reject)=>{
-         let hubDataSources = "";
-         if(cache.get(registry.searchData.USE_TISHUB_STATE_CACHE_KEY)??false) {
-             let hubLisList = await TisHub.getClosedIssuesTis();
-             hubDataSources = TisHub.tisListToTisText(hubLisList);
-         }
-         resolve(hubDataSources+localDataSources);
-     })
+        return new Promise(async (resolve,reject)=>{
+            let hubDataSources = "";
+            if(cache.get(registry.searchData.USE_TISHUB_STATE_CACHE_KEY)??false) {
+                let hubLisList = await TisHub.getClosedIssuesTis();
+                hubDataSources = TisHub.tisListToTisText(hubLisList);
+            }
+            resolve(hubDataSources+localDataSources);
+        })
     }
 
 
@@ -2049,12 +2049,12 @@
     }
     // 更新历史数据
     function compareAndPushDiffToHistory(items = [],isCompared = false) {
-       // 更新“旧全局数据”：searchData 追加-> oldSearchData
+        // 更新“旧全局数据”：searchData 追加-> oldSearchData
         let oldSearchData = cache.get(registry.searchData.OLD_SEARCH_DATA_KEY)??[];
         let newItemList = items;
         if(! isCompared && oldSearchData.length != 0) {
-           // 比较后，差异项加入（取并集）
-           newItemList = compareArrayDiff(items,oldSearchData,registry.searchData.idFun,1) ;
+            // 比较后，差异项加入（取并集）
+            newItemList = compareArrayDiff(items,oldSearchData,registry.searchData.idFun,1) ;
         }
         oldSearchData.push(... newItemList)
         console.log("旧数据缓存",oldSearchData)
@@ -2086,11 +2086,11 @@
         })
     }, 200) // 积累时间
     const triggerRefreshNewData = (block)=>{
-       // 块积累
-       blocks.push(...block);
+        // 块积累
+        blocks.push(...block);
 
-       // 开始去处理
-       refreshNewData();
+        // 开始去处理
+        refreshNewData();
     }
     // 转义与恢复，数据进行解析前进行转义，解析后恢复——比如文本中出现“/”，就会出现：SyntaxError: Octal escape sequences are not allowed in template strings.
     function CallBeforeParse() {
@@ -2336,23 +2336,23 @@
     const parseScriptItem = function (searchData){
         console.log("==1：简述项解析出脚本项==")
         for(let item of searchData) {
-           if((item == null || item.title == null) || item.type != "sketch" ) continue;
-           if( /\[\s*(.*')?\s*(脚本|script)\s*'?\s*\]/.test( item.title ) ) {
-              // 是脚本项
-              item.type = "script";
-              // 将resource解析为对象
-              item.resourceObj = scriptTextParser(item.resource);
-              item.resource = "--脚本项resource已解析到resourceObj--"
-              // 解析脚本中的env(环境变量)
-              if(item.resourceObj.env != null) {
-                  item.resourceObj.env = extractVariables(item.resourceObj.env);
-                  // 将提取的icon变量放到数据项根上，这样显示时，可读取作为icon
-                  let customIcon = item.resourceObj.env._icon;
-                  if( customIcon != null) item.icon = customIcon;
-                  let vassal = item.resourceObj.vassal;
-                  if(vassal != null) item.vassal = vassal;
-              }
-           }
+            if((item == null || item.title == null) || item.type != "sketch" ) continue;
+            if( /\[\s*(.*')?\s*(脚本|script)\s*'?\s*\]/.test( item.title ) ) {
+                // 是脚本项
+                item.type = "script";
+                // 将resource解析为对象
+                item.resourceObj = scriptTextParser(item.resource);
+                item.resource = "--脚本项resource已解析到resourceObj--"
+                // 解析脚本中的env(环境变量)
+                if(item.resourceObj.env != null) {
+                    item.resourceObj.env = extractVariables(item.resourceObj.env);
+                    // 将提取的icon变量放到数据项根上，这样显示时，可读取作为icon
+                    let customIcon = item.resourceObj.env._icon;
+                    if( customIcon != null) item.icon = customIcon;
+                    let vassal = item.resourceObj.vassal;
+                    if(vassal != null) item.vassal = vassal;
+                }
+            }
         }
         return searchData;
     }
@@ -2575,10 +2575,10 @@
             matchResult = $("#matchResult");
             // 将视图对象放到注册表中
             registry.view.element = {
-               input: searchInputDocument,
-               textView: textShow,
-               logoButton: controlButton,
-               itemsBox: matchResult
+                input: searchInputDocument,
+                textView: textShow,
+                logoButton: controlButton,
+                itemsBox: matchResult
             }
             // 菜单函数(点击输入框右边按钮时会调用)
             controlButton.click( function () {
@@ -2630,7 +2630,7 @@
             document.addEventListener('keydown', function(event) {
                 if (event.shiftKey && event.keyCode === 9 ) {
                     if(registry.searchData.isSearchPro()) {
-                       // 在这里编写按下shift+tab键时要执行的代码
+                        // 在这里编写按下shift+tab键时要执行的代码
                         let input = event.target;
                         input.value = input.value.split(registry.searchData.searchBoundary)[0]
                         event.target.value = event.target.value.toLowerCase();
@@ -2905,26 +2905,27 @@
                 let searchData = []
 
                 function search(rawKeyword) {
-                    // 清理类AI搜索标志
                     let processedKeyword = rawKeyword.trim().split(/\s+/).reverse().join(" ");
                     version = registry.searchData.version;
+                    // 常规搜索
                     let searchResult = searchUnitHandler(registry.searchData.getData(),processedKeyword);
+                    // 如果常规搜索不到使用类AI搜索
                     if((searchResult == null || searchResult.length === 0) && `${rawKeyword}`.trim().length > 0 ) {
-                        // 如果匹配不到使用类AI搜索(registry.searchData.getData()会被排序desc)
-                        // 为什么需要拷贝data，因为全局的搜索位置不能改变！！
                         try {
-			    searchResult = overlapMatchingDegreeForObjectArray(rawKeyword.toUpperCase(),[...registry.searchData.getData()], (item)=>{
-			        const str2ScopeMap = {}
-			        const { tags , cleaned } = extractFlagsAndCleanContent(`${item.title}`);
-			        str2ScopeMap[cleaned.toUpperCase()] = 4;
-				str2ScopeMap[`${item.describe}${tags.join()}`.toUpperCase()] = 2;
-				str2ScopeMap[`${item.resource}${item.vassal}`.substring(0, 2048).toUpperCase()] = 1;
-				return str2ScopeMap;
-			    },"desc",{sort:"desc",onlyHasScope:true});
-			    console.log("启动类AI搜索结果 ：",searchResult)
-			}catch (e) {
-			    console.error("类AI搜索异常！",e)
-			}
+                            //	`registry.searchData.getData()`会被排序desc
+                            // 为什么需要拷贝data，因为全局的搜索位置不能改变！！
+                            searchResult = overlapMatchingDegreeForObjectArray(rawKeyword.toUpperCase(),[...registry.searchData.getData()], (item)=>{
+                                const str2ScopeMap = {}
+                                const { tags , cleaned } = extractFlagsAndCleanContent(`${item.title}`);
+                                str2ScopeMap[cleaned.toUpperCase()] = 4;
+                                str2ScopeMap[`${item.describe}${tags.join()}`.toUpperCase()] = 2;
+                                str2ScopeMap[`${item.resource}${item.vassal}`.substring(0, 2048).toUpperCase()] = 1;
+                                return str2ScopeMap;
+                            },"desc",{sort:"desc",onlyHasScope:true});
+                            console.log("启动类AI搜索结果 ：",searchResult)
+                        }catch (e) {
+                            console.error("类AI搜索异常！",e)
+                        }
                     }
                     return searchResult;
                 }
@@ -2942,7 +2943,7 @@
                     let resource = searchResultItem.resource.trim();
                     let customIcon = null;
                     if(searchResultItem.icon != null) {
-                       customIcon = searchResultItem.icon;
+                        customIcon = searchResultItem.icon;
                     }else {
                         let type = searchResultItem.type;
                         // 如果不是url，那其它类型就需要自定义图标
@@ -2969,8 +2970,8 @@
                     // 如果带#将加上删除线
                     let style = "color: #1a0dab;";
                     if( title.startsWith("#")) {
-                       style = `text-decoration:line-through;color:#a8a8a8;`;
-                       title = title.replace(/^#/,"")
+                        style = `text-decoration:line-through;color:#a8a8a8;`;
+                        title = title.replace(/^#/,"")
                     }
                     return `<span style="${style}" class="item_title">${title}</span>`;
                 }
@@ -3129,7 +3130,7 @@
                 let hasVassal = $(targetObj).attr("vassal") != null;
                 // 初始化textView注册表中的对象
                 function showTextPage(title,desc,body) {
-                   registry.view.textView.show(`<span style='color:red'>标题</span>：${title}<br /><span style='color:red'>描述：</span>${desc}<br /><span style='color:red'>简述内容：</span><br />${sketchResourceToHtmlAfter(converter.makeHtml(sketchResourceToHtmlBefore( body )))} `)
+                    registry.view.textView.show(`<span style='color:red'>标题</span>：${title}<br /><span style='color:red'>描述：</span>${desc}<br /><span style='color:red'>简述内容：</span><br />${sketchResourceToHtmlAfter(converter.makeHtml(sketchResourceToHtmlBefore( body )))} `)
                 }
                 if(hasVassal) {
                     showTextPage(itemData.title,"主项的相关/附加内容",itemData.vassal);
@@ -3143,13 +3144,13 @@
                     function open(url) {
                         let openUrl = url;
                         return {
-                           simulator(operate = (click, roll, dimension) => {}) { // 模拟器
-                               if(openUrl == null || operate == null || typeof operate != 'function') return;
-                               let pageSimulatorScript = operate.toString();
-                               addPageSimulatorScript(openUrl,pageSimulatorScript); // 保存模拟操作，模拟脚本将在指定时间内打开指定网址有效
-                               window.open(openUrl); // 打开网址
-                               return this;
-                           }
+                            simulator(operate = (click, roll, dimension) => {}) { // 模拟器
+                                if(openUrl == null || operate == null || typeof operate != 'function') return;
+                                let pageSimulatorScript = operate.toString();
+                                addPageSimulatorScript(openUrl,pageSimulatorScript); // 保存模拟操作，模拟脚本将在指定时间内打开指定网址有效
+                                window.open(openUrl); // 打开网址
+                                return this;
+                            }
                         }
                     }
                     let view = {
@@ -3306,7 +3307,7 @@
         window.addEventListener('message', event => {
             // console.log("父容器接收到了信息~~")
             if(event.data == MY_SEARCH_SCRIPT_VIEW_SHOW_EVENT) {
-               showFun() // 接收显示呼出搜索框
+                showFun() // 接收显示呼出搜索框
             }
         });
         triggerAndEvent("ctrl+alt+s", showFun)
@@ -3331,13 +3332,13 @@
     // 显示配置视图
     // 是否显示进度 - 进度控制
     function clearCache() {
-       cache.remove(registry.searchData.SEARCH_DATA_KEY);
-       // 如果处于debug模式，也清理其它的
-       if(isInstructions("debug")) {
-          cache.remove(registry.searchData.CACHE_FAVICON_SOURCE_KEY);
-       }
-       // 触发缓存被清理事件
-       for(let fun of registry.searchData.dataCacheRemoveEventListener) fun();
+        cache.remove(registry.searchData.SEARCH_DATA_KEY);
+        // 如果处于debug模式，也清理其它的
+        if(isInstructions("debug")) {
+            cache.remove(registry.searchData.CACHE_FAVICON_SOURCE_KEY);
+        }
+        // 触发缓存被清理事件
+        for(let fun of registry.searchData.dataCacheRemoveEventListener) fun();
     }
     GM_registerMenuCommand("订阅管理",function() {
         showConfigView();
@@ -3512,17 +3513,17 @@
 
             // 刷新视图状态
             async function refreshViewState() {
-               // 更新token状态
-               $(clearToken).css({"display":GithubAPI.getToken() == null?"none":"inline-block"})
-               // 更新是否使用TisHub状态
-               let isUseTisHubTis = cache.get(registry.searchData.USE_TISHUB_STATE_CACHE_KEY)??false;
-               useCommonRepo.checked = isUseTisHubTis;
-               // 更新可提交数
-               let tisList = await TisHub.getTisHubAllTis();
-               if(tisList != null && tisList.length != 0) {
-                  commitableTisList = TisHub.tisFilter(subscribe_text.value,tisList)??[]
-                  $(pushTis).find("span").text(commitableTisList.length);
-               }
+                // 更新token状态
+                $(clearToken).css({"display":GithubAPI.getToken() == null?"none":"inline-block"})
+                // 更新是否使用TisHub状态
+                let isUseTisHubTis = cache.get(registry.searchData.USE_TISHUB_STATE_CACHE_KEY)??false;
+                useCommonRepo.checked = isUseTisHubTis;
+                // 更新可提交数
+                let tisList = await TisHub.getTisHubAllTis();
+                if(tisList != null && tisList.length != 0) {
+                    commitableTisList = TisHub.tisFilter(subscribe_text.value,tisList)??[]
+                    $(pushTis).find("span").text(commitableTisList.length);
+                }
             }
             // 初始化subscribe_text的值
             subscribe_text.value = getSubscribe();
@@ -3569,7 +3570,7 @@
             }
             // 打开TitHub
             openTisHub.onclick = function() {
-               window.open(tisHubLink, "_blank");
+                window.open(tisHubLink, "_blank");
             }
             // push到TisHub公共仓库中
             pushTis.onclick =async function () {
@@ -3579,20 +3580,20 @@
                     return;
                 }
                 if(GithubAPI.getToken(true) == null) {
-                   alert("获取token失败，无法继续！");
-                   return;
+                    alert("获取token失败，无法继续！");
+                    return;
                 }
                 // 组装提交的body
                 let body = (()=>{
-                   let _body = "";
-                   for(let tis of commitableTisList) _body+=tis;
-                   return _body;
+                    let _body = "";
+                    for(let tis of commitableTisList) _body+=tis;
+                    return _body;
                 })();
                 if ( body == "") return;
                 let userInfo = await GithubAPI.setToken().getUserInfo();
                 if(userInfo == null) {
-                   alert("提交异常，请检查网络或提交的Token信息！")
-                   return;
+                    alert("提交异常，请检查网络或提交的Token信息！")
+                    return;
                 }
                 GithubAPI.commitIssues({
                     "title": userInfo.name+"的订阅",
