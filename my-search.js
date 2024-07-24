@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         我的搜索
 // @namespace    http://tampermonkey.net/
-// @version      6.7.2
+// @version      6.7.3
 // @description  打造订阅式搜索，让我的搜索，只搜精品！
 // @license MIT
 // @author       zhuangjie
@@ -2912,15 +2912,19 @@
                     if((searchResult == null || searchResult.length === 0) && `${rawKeyword}`.trim().length > 0 ) {
                         // 如果匹配不到使用类AI搜索(registry.searchData.getData()会被排序desc)
                         // 为什么需要拷贝data，因为全局的搜索位置不能改变！！
-                        searchResult = overlapMatchingDegreeForObjectArray(rawKeyword.toUpperCase(),[...registry.searchData.getData()], (item)=>{
-                            const str2ScopeMap = {}
-                            const { tags , cleaned } = extractFlagsAndCleanContent(`${item.title}`);
-                            str2ScopeMap[cleaned.toUpperCase()] = 4;
-                            str2ScopeMap[`${item.describe}${tags.join()}`.toUpperCase()] = 2;
-                            str2ScopeMap[`${item.resource}${item.vassal}`.substring(0, 2048).toUpperCase()] = 1;
-                            return str2ScopeMap;
-                        },"desc",{sort:"desc",onlyHasScope:true});
-                        console.log("启动类AI搜索结果 ：",searchResult)
+                        try {
+			    searchResult = overlapMatchingDegreeForObjectArray(rawKeyword.toUpperCase(),[...registry.searchData.getData()], (item)=>{
+			        const str2ScopeMap = {}
+			        const { tags , cleaned } = extractFlagsAndCleanContent(`${item.title}`);
+			        str2ScopeMap[cleaned.toUpperCase()] = 4;
+				str2ScopeMap[`${item.describe}${tags.join()}`.toUpperCase()] = 2;
+				str2ScopeMap[`${item.resource}${item.vassal}`.substring(0, 2048).toUpperCase()] = 1;
+				return str2ScopeMap;
+			    },"desc",{sort:"desc",onlyHasScope:true});
+			    console.log("启动类AI搜索结果 ：",searchResult)
+			}catch (e) {
+			    console.error("类AI搜索异常！",e)
+			}
                     }
                     return searchResult;
                 }
