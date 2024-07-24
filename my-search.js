@@ -33,8 +33,8 @@
 // @grant GM_registerMenuCommand
 // @grant        GM_info
 
-// @downloadURL  https://cdn.jsdelivr.net/gh/My-Search/my-search/my-search.js
-// @updateURL  https://cdn.jsdelivr.net/gh/My-Search/my-search/my-search.js
+// @downloadURL https://update.greasyfork.org/scripts/457020/%E6%88%91%E7%9A%84%E6%90%9C%E7%B4%A2.user.js
+// @updateURL https://update.greasyfork.org/scripts/457020/%E6%88%91%E7%9A%84%E6%90%9C%E7%B4%A2.meta.js
 // ==/UserScript==
 
 (function() {
