@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         我的搜索
 // @namespace    http://tampermonkey.net/
-// @version      6.6.9
+// @version      6.7.0
 // @description  打造订阅式搜索，让我的搜索，只搜精品！
 // @license MIT
 // @author       zhuangjie
@@ -18,6 +18,8 @@
 
 // @require      https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js
 // @resource code-css https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/default.min.css
+
+// @require      https://cdn.jsdelivr.net/gh/My-Search/string-overlap-matching-degree@1.0.0/string-overlap-matching-degree.js
 
 // @grant        window.onurlchange
 // @grant        GM_setValue
@@ -609,7 +611,8 @@
                     return flagStr;
                 }
             },
-            onViewFirstShow: [],
+            viewFirstShowEventListener: [],
+            viewHideEventAfterListener: [],
             menuActive: false,
             // 视图延时隐藏时间，避免点击右边logo，还没显示就隐藏了
             delayedHideTime: 150,
@@ -1066,7 +1069,7 @@
     // 判断是否要执行设置源，如果之前没有设置过的话就要设置，而不是通过事件触发
     if(cache.get(registry.searchData.CACHE_FAVICON_SOURCE_KEY) == null ) setTimeout(()=>{setFaviconSource();},2000);
     // 添加事件（视图在页面中初次显示时）
-    registry.view.onViewFirstShow.push(setFaviconSource);
+    registry.view.viewFirstShowEventListener.push(setFaviconSource);
 
     // 【函数库】
     // 加载样式
@@ -1654,7 +1657,21 @@
     padding: 3px;
     flex-shrink: 0;   /* 当容量不够时，不压缩图片的大小 */
 }
-
+#my_search_box {
+    position: fixed;top:50px;
+    border:2px solid #cecece;z-index:2147383656;
+    background: #ffffff;
+}
+.match-search::before {
+    display: block;
+    content: "(;｀O´)o 匹配度搜索已启用";
+    position: absolute;
+    left: 5px;
+    top: -20px;
+    font-size: 12px;
+    color: #d5a436;
+    font-weight: bold;
+}
 
     `)
 
@@ -2203,7 +2220,7 @@
     // 检查数据有效性，且只有数据无效时挂载到数据
     dataInitFun();
     // 当视图第一次显示时，再执行
-    registry.view.onViewFirstShow.push(dataInitFun);
+    registry.view.viewFirstShowEventListener.push(dataInitFun);
 
     // 解析出传入的所有项标签数据
     function parseFlags(data = [],selecterFun = (_item)=>_item,flagsMap = {}) {
@@ -2371,6 +2388,18 @@
         }
         return isArray?items:items[0];
     }
+    // 解析出标题中的所有标签-返回string数组
+    function extractFlagsAndCleanContent(inputString = "") {
+        // 使用正则表达式匹配所有方括号包围的内容
+        const regex = /\[.*?\]/g;
+        const tags = inputString.match(regex) || [];
+        // 清理掉标签的内容
+        const cleanedContent = inputString.replace(regex, '').trim();
+        return {
+            tags: tags,
+            cleaned: cleanedContent
+        };
+    }
     const filterSearchData = function (searchData) {
         const filterDataByUserUnfollowList = (itemsData,userUnfollowList = []) => {
             var userUnfollowMap = userUnfollowList.reduce(function(result, item) {
@@ -2530,14 +2559,6 @@
                 </div>
              </div>
          `)
-            // 设置样式
-            view.style = `
-             position: fixed;top:50px;
-             border:2px solid #cecece;z-index:2147383656;
-             background: #ffffff;
-             overflow: hidden;
-         `;
-
             // 挂载到文档中
             document.body.appendChild(view)
             // 整个视图对象放在组件全局中/注册表中
@@ -2884,9 +2905,24 @@
                 let searchData = []
 
                 function search(rawKeyword) {
+                    // 清理类AI搜索标志
                     let processedKeyword = rawKeyword.trim().split(/\s+/).reverse().join(" ");
                     version = registry.searchData.version;
-                    return searchUnitHandler(registry.searchData.getData(),processedKeyword);
+                    let searchResult = searchUnitHandler(registry.searchData.getData(),processedKeyword);
+                    if((searchResult == null || searchResult.length === 0) && `${rawKeyword}`.trim().length > 0 ) {
+                        // 如果匹配不到使用类AI搜索(registry.searchData.getData()会被排序desc)
+                        // 为什么需要拷贝data，因为全局的搜索位置不能改变！！
+                        searchResult = overlapMatchingDegreeForObjectArray(rawKeyword.toUpperCase(),[...registry.searchData.getData()], (item)=>{
+                            const str2ScopeMap = {}
+                            const { tags , cleaned } = extractFlagsAndCleanContent(`${item.title}`);
+                            str2ScopeMap[cleaned.toUpperCase()] = 4;
+                            str2ScopeMap[`${item.describe}${tags.join()}`.toUpperCase()] = 2;
+                            str2ScopeMap[`${item.resource}${item.vassal}`.substring(0, 2048).toUpperCase()] = 1;
+                            return str2ScopeMap;
+                        },"desc",{sort:"desc",onlyHasScope:true});
+                        console.log("启动类AI搜索结果 ：",searchResult)
+                    }
+                    return searchResult;
                 }
                 // 搜索AOP或说搜索代理
                 // 递归搜索，根据空字符切换出来的多个keyword
@@ -2924,7 +2960,8 @@
                 // 标题内容处理器
                 function titleContentHandler(title) {
                     // 对标题去掉所有flag
-                    title = title.replace(/\[.*\]/,"").trim();
+                    const { cleaned } = extractFlagsAndCleanContent(title)
+                    title = cleaned
                     // 如果带#将加上删除线
                     let style = "color: #1a0dab;";
                     if( title.startsWith("#")) {
@@ -3208,6 +3245,8 @@
             })
             // 视图隐藏-清理旧数据
             registry.searchData.clearData();
+            // 触发视图隐藏事件
+            registry.view.viewHideEventAfterListener.forEach(fun=>fun());
         }
         let showView = function () {
             // 让视图可见
@@ -3256,7 +3295,7 @@
             viewVisibilityController(true);
             // 触发视图首次显示事件
             if(isFirstShow) {
-                for(let e of registry.view.onViewFirstShow) e();
+                for(let e of registry.view.viewFirstShowEventListener) e();
                 isFirstShow = false;
             }
         }
