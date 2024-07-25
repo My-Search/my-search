@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         我的搜索
 // @namespace    http://tampermonkey.net/
-// @version      6.7.4
+// @version      6.7.5
 // @description  打造订阅式搜索，让我的搜索，只搜精品！
 // @license MIT
 // @author       zhuangjie
@@ -270,12 +270,6 @@
             $.ajax(ajaxOptions);
         });
     }
-    /*
-    // 持续执行某块代码一某时间
-    function continuousExecution(handle,singleInterval=100,duration = 1000) {
-       let timer = setInterval(handle,singleInterval);
-        setTimeout(()=>{clearInterval(timer)},duration)
-    }*/
 
     // ==偏业务工具函数==
     // 使用责任链模式——对pageText进行操作的工具
@@ -594,6 +588,19 @@
         view: {
             viewVisibilityController: () => { ERROR.tell("视图未初始化，但你使用了它的未初始化的注册表信息！") },
             viewDocument: null,
+            tis: {
+                beginTis(msg) {
+                    if(msg == null || msg.length === 0) return;
+                    const tisDocument = document.querySelector("#my_search_box > #tis");
+                    tisDocument.innerHTML = msg;
+                    tisDocument.display = "block";
+                    console.log("设置结束")
+                    return ()=>{
+                        tisDocument.innerHTML = ""; // 置空消息内容
+                        tisDocument.display = "none"; // 让tis不可见
+                    }
+                }
+            },
             setButtonVisibility: () => { ERROR.tell("按钮未初始化！") },
             element: null, // 存放着视图的关键元素对象
             titleFlagHandler: {
@@ -713,7 +720,6 @@
                 let updateDataTime = dataPackage.expire - this.effectiveDuration;
                 let data = dataPackage.data;
                 // 如果数据在挂载后面已经更新了，重新加载数据到全局中
-                console.log("目标：",updateDataTime > this.dataMountTime)
                 if(this.data == null || updateDataTime > this.dataMountTime) {
                     console.logout("== 数据未加载或已检查到在其它页面已重新更新数据 ==")
                     this.setData(data);
@@ -773,7 +779,7 @@
                 event:{},
                 // 搜索状态，失去焦点隐藏的一要素
                 isSearching:false,
-                send(search,rawKeyword) {
+                async send(search,rawKeyword) {
                     this.isSearching = true;
                     for(let subscriptionRegular of Object.keys(this.event)) {
                         const regex = new RegExp(subscriptionRegular,"i"); // 将正则字符串转换为正则表达式对象
@@ -781,7 +787,7 @@
                             return this.event[subscriptionRegular](search,rawKeyword);
                         }
                     }
-                    let result = search(rawKeyword);
+                    let result = await search(rawKeyword);
                     this.isSearching = false;
                     return result;
                 }
@@ -1662,9 +1668,7 @@
     border:2px solid #cecece;z-index:2147383656;
     background: #ffffff;
 }
-.match-search::before {
-    display: block;
-    content: "(;｀O´)o 匹配度搜索已启用";
+#my_search_box > #tis {
     position: absolute;
     left: 5px;
     top: -20px;
@@ -2542,6 +2546,7 @@
             view.id = "my_search_box";
             let menu_icon = "data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBzdGFuZGFsb25lPSJubyI/PjwhRE9DVFlQRSBzdmcgUFVCTElDICItLy9XM0MvL0RURCBTVkcgMS4xLy9FTiIgImh0dHA6Ly93d3cudzMub3JnL0dyYXBoaWNzL1NWRy8xLjEvRFREL3N2ZzExLmR0ZCI+PHN2ZyB0PSIxNjc3MDgxNTk3NzA3IiBjbGFzcz0iaWNvbiIgdmlld0JveD0iMCAwIDEwMjQgMTAyNCIgdmVyc2lvbj0iMS4xIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHAtaWQ9IjEzNDYxIiB4bWxuczp4bGluaz0iaHR0cDovL3d3dy53My5vcmcvMTk5OS94bGluayIgd2lkdGg9IjIwMCIgaGVpZ2h0PSIyMDAiPjxwYXRoIGQ9Ik0yMjQuMiA0NzIuM2MtMTMtNS43LTMuNy0yMy41IDguMi0xOSA5MSAzNCAxNDYuOCAxMDguNyAxODIuNCAxMzguNSA1LjYgNC43IDE0IDIuOSAxNy4zLTMuNSAxNi44LTMyIDQ1LjgtMTEzLjctNTcuMS0xNjguNi04Ny4zLTQ2LjUtMTg4LTUzLjYtMjQ3LjMtODIuMi0xNC41LTctMzEuMSA0LjYtMjkuOSAyMC43IDUgNjkuNyAyOC45IDEyNC43IDYyLjMgMTgxLjUgNjcuMyAxMTQuMyAxNDAuNiAxMzIuOSAyMTYuNiAxMDQgMi4yLTAuOSA0LjUtMS44IDctMyA3LTMuNCA4LjMtMTIuOSAyLjUtMTguMSAwLjEgMC00NS43LTY5LjMtMTYyLTE1MC4zeiIgZmlsbD0iI0ZGRDQwMSIgcC1pZD0iMTM0NjIiPjwvcGF0aD48cGF0aCBkPSJNMjgyLjcgODQ5LjljNzkuNS0xMzcgMTcyLjQtMjYzLjEgMzg1LjQtNDAxLjMgOS44LTYuNCAyLjEtMjEuNS04LjktMTcuNEM0OTcuNyA0OTIuOCA0MjkuNyA1ODUgMzczLjMgNjQwLjhjLTguNyA4LjctMjMuNCA2LjMtMjkuMS00LjYtMjcuMi01MS44LTY5LjUtMTc0LjEgOTcuMy0yNjMuMSAxNDcuNy03OC44IDMxOS45LTkxLjQgNDI5LjctOTMuMyAxOC45LTAuMyAzMS41IDE5LjQgMjMuMyAzNi40Qzg2My43IDM4MCA4NDIuNiA0NzggNzg5LjkgNTY3LjYgNjgwLjggNzUzLjEgNTQ1LjUgNzY2LjcgNDIyLjIgNzE5LjhjLTguOC0zLjQtMTguOC0wLjItMjQgNy43LTE2LjYgMjUuMi01MC4zIDgwLjEtNTguNyAxMjIuNC0xMS40IDU2LjgtODIuMiA0My45LTU2LjggMHoiIGZpbGw9IiM4QkMwM0MiIHAtaWQ9IjEzNDYzIj48L3BhdGg+PHBhdGggZD0iTTM3NSA0MTkuNmMtMzAuMSAyOC4yLTQ1LjggNTcuNy01Mi40IDg2LjEgNDAuNiAzMi40IDcwLjIgNjcuNyA5Mi4xIDg1LjkgMS4yIDEgMi41IDEuNiAzLjkgMi4xIDYuNS02LjcgMTMuMy0xMy43IDIwLjQtMjAuNyAxNS4yLTM3LjkgMjUuMy0xMDUuNy02NC0xNTMuNHpNMzE4LjggNTQ4LjJjMS42IDM2LjEgMTQuNyA2Ny42IDI1LjUgODguMSA1LjcgMTAuOSAyMC4zIDEzLjMgMjkuMSA0LjYgNC45LTQuOSAxMC0xMCAxNS4xLTE1LjQtMC42LTEtMS4zLTItMi4yLTIuOCAwLTAuMS0yMC4xLTMwLjUtNjcuNS03NC41eiIgZmlsbD0iIzhCQTAwMCIgcC1pZD0iMTM0NjQiPjwvcGF0aD48L3N2Zz4=";
             view.innerHTML = (`
+             <div id="tis"></div>
              <div id="my_search_view">
                 <div id="searchBox" >
                     <input placeholder="${registry.searchData.searchPlaceholder()}" id="my_search_input" />
@@ -2769,16 +2774,16 @@
                 })
                 return showNewData;
             }
-            registry.searchData.searchEven.event[".*"+registry.searchData.searchBoundary+".*"] = function(search,rawKeyword) {
+            registry.searchData.searchEven.event[".*"+registry.searchData.searchBoundary+".*"] =async function(search,rawKeyword) {
                 // 当处于搜索模式时，只搜索“可搜索”项
-                return search(`${registry.searchData.searchProFlag} ${rawKeyword}`);
+                return await search(`${registry.searchData.searchProFlag} ${rawKeyword}`);
             }
             // 搜索AOP
-            function searchAOP(search,rawKeyword) {
+            async function searchAOP(search,rawKeyword) {
                 // 转发到对应的AOP处理器中（keyword规则订阅者）
                 let data = registry.searchData.getData();
                 console.log("搜索data:",data)
-                return registry.searchData.searchEven.send(search,rawKeyword);
+                return await registry.searchData.searchEven.send(search,rawKeyword);
             }
             function searchUnitHandler(beforeData = [],keyword = "") {
                 // 触发搜索事件
@@ -2806,7 +2811,7 @@
                     return str??"";
                 }
                 let pinyinKeyword = getPinyinByKeyword(keyword);
-                let searchBegin = new Date().getTime();
+                let searchBegin = Date.now()
                 for (let dataItem of beforeData) {
                     /* 取消注释会导致虽然是15条，但有些匹配度高的依然不能匹配
                     // 如果已达到搜索要显示的条数，则不再搜索 && 已经是本次最后一次过滤了 => 就不要扫描全部数据了，只搜出15条即可
@@ -2822,8 +2827,8 @@
                         // 向满足条件的数据对象添加在总数据中的索引
                     }
                 }
-                let searchEnd = new Date().getTime();
-                console.logout("搜索主逻辑耗时："+(searchEnd - searchBegin ) +"ms");
+                let searchEnd = Date.now();
+                console.logout("常规搜索主逻辑耗时："+(searchEnd - searchBegin ) +"ms");
                 // 将上面层级数据进行权重排序然后放在总容器中
                 searchResultData.push(...DataWeightScorer.sort(searchLevelData[0],registry.searchData.idFun));
                 searchResultData.push(...DataWeightScorer.sort(searchLevelData[1],registry.searchData.idFun));
@@ -2896,43 +2901,62 @@
             registry.view.titleFlagHandler.handlers.push(titleFlagHandler)
             // 给输入框加事件
             // 执行 debounce 函数返回新函数
-            let handler = function (e) {
+            let handler = async function (e) {
                 // 搜索使用的数据版本
                 let version = registry.searchData.version;
                 let rawKeyword = e.target.value;
                 // 过滤
                 // 数据出来的总数据
                 let searchData = []
-
-                function search(rawKeyword) {
+                // 字符串重叠匹配度搜索（类AI搜索）
+                async function stringOverlapMatchingDegreeSearch(rawKeyword) {
+                    const endTis = registry.view.tis.beginTis("(;｀O´)o 匹配度模式搜索中...")
+                    // 这里为什么要用异步，不果不会那上面设置的tis会得不到渲染，先保证上面已经渲染完成再执行下面函数
+                    return await new Promise((resolve,reject)=>{
+                        setTimeout(() => { // 这里模拟的是当下次渲染完成后执行
+                            try {
+                                // 搜索逻辑开始
+                                //	`registry.searchData.getData()`会被排序desc
+                                // 为什么需要拷贝data，因为全局的搜索位置不能改变！！
+                                const searchBegin = Date.now();
+                                let searchResult = overlapMatchingDegreeForObjectArray(rawKeyword.toUpperCase(),[...registry.searchData.getData()], (item)=>{
+                                    const str2ScopeMap = {}
+                                    const { tags , cleaned } = extractFlagsAndCleanContent(`${item.title}`);
+                                    str2ScopeMap[cleaned.toUpperCase()] = 4;
+                                    str2ScopeMap[`${item.describe}${tags.join()}`.toUpperCase()] = 2;
+                                    str2ScopeMap[`${item.resource}${item.vassal}`.substring(0, 2048).toUpperCase()] = 1;
+                                    return str2ScopeMap;
+                                },"desc",{sort:"desc",onlyHasScope:true});
+                                const searchEnd = Date.now();
+                                console.log("启动类AI搜索结果 ：",searchResult)
+                                console.logout("类AI搜索主逻辑耗时："+(searchEnd - searchBegin ) +"ms");
+                                resolve(searchResult)
+                            }catch (e) {
+                                console.error("类AI搜索异常！",e)
+                                resolve([])
+                            }finally {
+                                endTis()
+                            }
+                        },50);
+                    })
+                }
+                // 常规方式搜索（搜索逻辑入口）
+                async function search(rawKeyword) {
                     let processedKeyword = rawKeyword.trim().split(/\s+/).reverse().join(" ");
                     version = registry.searchData.version;
                     // 常规搜索
                     let searchResult = searchUnitHandler(registry.searchData.getData(),processedKeyword);
                     // 如果常规搜索不到使用类AI搜索
                     if((searchResult == null || searchResult.length === 0) && `${rawKeyword}`.trim().length > 0 ) {
-                        try {
-                            //	`registry.searchData.getData()`会被排序desc
-                            // 为什么需要拷贝data，因为全局的搜索位置不能改变！！
-                            searchResult = overlapMatchingDegreeForObjectArray(rawKeyword.toUpperCase(),[...registry.searchData.getData()], (item)=>{
-                                const str2ScopeMap = {}
-                                const { tags , cleaned } = extractFlagsAndCleanContent(`${item.title}`);
-                                str2ScopeMap[cleaned.toUpperCase()] = 4;
-                                str2ScopeMap[`${item.describe}${tags.join()}`.toUpperCase()] = 2;
-                                str2ScopeMap[`${item.resource}${item.vassal}`.substring(0, 2048).toUpperCase()] = 1;
-                                return str2ScopeMap;
-                            },"desc",{sort:"desc",onlyHasScope:true});
-                            console.log("启动类AI搜索结果 ：",searchResult)
-                        }catch (e) {
-                            console.error("类AI搜索异常！",e)
-                        }
+                        searchResult = await stringOverlapMatchingDegreeSearch(rawKeyword)
                     }
                     return searchResult;
                 }
                 // 搜索AOP或说搜索代理
                 // 递归搜索，根据空字符切换出来的多个keyword
                 // let searchResultData = searchUnitHandler(registry.searchData.data,key)
-                let searchResultData = searchAOP(search,rawKeyword);
+                let searchResultData = await searchAOP(search,rawKeyword);
+                debugger
                 // 放到视图上
                 // 置空内容
                 matchItems.html("")
@@ -3212,7 +3236,7 @@
 
             })
             //registry.searchData.searchHandle = handler;
-            const refresh = debounce(handler, 150)
+            const refresh = debounce(handler, 300)
             // 第一次触发 scroll 执行一次 fn，后续只有在停止滑动 1 秒后才执行函数 fn
             searchBox.on('input', refresh)
 
