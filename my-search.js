@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         我的搜索
 // @namespace    http://tampermonkey.net/
-// @version      6.7.5
+// @version      6.8.0
 // @description  打造订阅式搜索，让我的搜索，只搜精品！
 // @license MIT
 // @author       zhuangjie
@@ -37,8 +37,10 @@
 // @updateURL https://update.greasyfork.org/scripts/457020/%E6%88%91%E7%9A%84%E6%90%9C%E7%B4%A2.meta.js
 // ==/UserScript==
 
-(function() {
+// 参数tis: actualWindow 是真实的window，而如果在下面脚本内访问window则不是，是沙盒的XPCNativeWrapper对象，详情https://blog.rxliuli.com/p/e55a67646bf546b3900ce270a6fbc6ca/
+(function(actualWindow) {
     'use strict';
+
     // 模块一：快捷键触发某一事件 （属于触发策略组）
     // 模块二：搜索视图（显示与隐藏）（属于搜索视图组）
     // 模块三：触发策略组触发策略触发搜索视图组视图
@@ -270,7 +272,18 @@
             $.ajax(ajaxOptions);
         });
     }
-
+    // 正则字符串匹配目录字符串-匹配工具
+    function isMatch(regexStr, text) {
+        // 创建正则表达式对象
+        let regex = new RegExp(regexStr);
+        // 使用 test 方法测试字符串是否匹配
+        return regex.test(text);
+    }
+    // 下次视图渲染完成调用
+    function waitViewRenderingComplete(callback) {
+        // 这里模拟的是当下次渲染完成后执行
+        setTimeout(callback,30)
+    }
     // ==偏业务工具函数==
     // 使用责任链模式——对pageText进行操作的工具
     const pageTextHandleChains = {
@@ -587,7 +600,8 @@
     let registry = {
         view: {
             viewVisibilityController: () => { ERROR.tell("视图未初始化，但你使用了它的未初始化的注册表信息！") },
-            viewDocument: null,
+            viewDocument: null, // 视图挂载后有值
+            element: null, // 存放着视图的关键元素对象 视图挂载后有值
             tis: {
                 beginTis(msg) {
                     if(msg == null || msg.length === 0) return;
@@ -602,7 +616,6 @@
                 }
             },
             setButtonVisibility: () => { ERROR.tell("按钮未初始化！") },
-            element: null, // 存放着视图的关键元素对象
             titleFlagHandler: {
                 handlers: [],
                 // 标题flag处理器
@@ -620,6 +633,13 @@
             },
             viewFirstShowEventListener: [],
             viewHideEventAfterListener: [],
+            // 在查看详情内容时，返回后事件
+            itemDetailBackAfterEventListener: [
+                // 简讯内容隐藏-确定存在触发的事件 - 脚本环境变量置空
+                () => {
+                    registry.script.script_env_var = undefined;
+                }
+            ],
             menuActive: false,
             // 视图延时隐藏时间，避免点击右边logo，还没显示就隐藏了
             delayedHideTime: 150,
@@ -647,14 +667,17 @@
                     }
                     return outputCSS;
                 },
-                show(html,css = "") {
-                    html = `<style>${this.cssFillPrefix(css,"#my_search_box #text_show")}</style>`+html;
-                    let my_search_box = $("#my_search_box");
+                show(html,css = "",js = "") {
+                    html =
+                        `<style>${this.cssFillPrefix(css,`#${registry.view.viewDocument.id} #${registry.view.element.textView.attr('id')}`)}</style>`
+                        +html
+                        +`<script>${js}</script>`
+                    let my_search_box = $(registry.view.viewDocument);
                     // 视图还没有初始化
                     if(my_search_box == null) return;
-                    let matchResult = $("#matchResult");
-                    let textShow = $("#text_show")
-                    textShow.html(html);
+                    let matchResult = registry.view.element.matchResult;
+                    let textView = registry.view.element.textView
+                    textView.html(html);
                     /*使用code代码块样式*/
                     document.querySelectorAll('#text_show pre code').forEach((el) => {
                         // 这里没有错，发警告不用理
@@ -664,7 +687,7 @@
                     matchResult.css({
                         "display": "none"
                     })
-                    textShow.css({
+                    textView.css({
                         "display":"block"
                     })
                 }
@@ -675,7 +698,7 @@
                 getLogoImg: function () {
                     let viewDocument = registry.view.viewDocument;
                     if(viewDocument == null ) return null;
-                    let currentLogoImg = $(viewDocument).find("#controlButton img");
+                    let currentLogoImg = $(viewDocument).find("#logoButton img");
                     if(this.originalLogo == null) this.originalLogo = currentLogoImg.attr("src");
                     return currentLogoImg;
                 },
@@ -689,6 +712,19 @@
                     if (logoImg == null ) return;
                     logoImg.attr("src",this.originalLogo)
                 }
+            },
+            modeEnum: {
+                UN_INIT: -2, // 未初始化
+                HIDE: -1, // 隐藏
+                WAIT_SEARCH: 0, // 待搜索模式
+                SHOW_RESULT: 1, // 结果显示模式
+                SHOW_ITEM_DETAIL: 2 // 查看项详情 (简述内容查看/脚本页)
+            },
+            seeNowMode() {
+               if(this.viewDocument == null) return this.modeEnum.UN_INIT;
+               if(this.element.textView.css('display') === "block") return this.modeEnum.SHOW_ITEM_DETAIL;
+               if(this.element.matchResult.css('display') === "block") return this.modeEnum.SHOW_RESULT;
+               return this.viewDocument.style.display === "block" ? this.modeEnum.WAIT_SEARCH : this.modeEnum.HIDE;
             }
         },
         other: {
@@ -703,6 +739,7 @@
             data: [],
             // 数据更新后有效时长
             effectiveDuration: 1000*60*60*12,
+            // 数据设置到全局中的时间
             dataMountTime: null,
             clearData() {
                 this.data = [];
@@ -711,18 +748,18 @@
             setData(data) {
                 if(data == null || data.length == 0) return;
                 this.data = data;
-                this.dataMountTime = new Date();
+                this.dataMountTime = Date.now();
             },
             getData() {
                 let dataPackage = cache.get(registry.searchData.SEARCH_DATA_KEY);
                 if(dataPackage == null || dataPackage.data == null) return this.data;
                 // 缓存信息不为空，深入判断是否使用缓存的数据
                 let updateDataTime = dataPackage.expire - this.effectiveDuration;
-                let data = dataPackage.data;
                 // 如果数据在挂载后面已经更新了，重新加载数据到全局中
+                // 全局data (即this.data)与dataMountTime是同时设置的，两者理论上是必须同时有值的
                 if(this.data == null || updateDataTime > this.dataMountTime) {
                     console.logout("== 数据未加载或已检查到在其它页面已重新更新数据 ==")
-                    this.setData(data);
+                    this.setData(dataPackage.data);
                 }
                 return this.data;
             },
@@ -896,7 +933,12 @@
                 return inputDesc;
 
             },
+            // 可填充的搜索keyword (如果输入框是"baidu : 如何..." => ["baidu","如何"] 以)
+            keywordForFill: [],
             searchBoundary: " : ",
+            parseRawKeywordForFill(rawKeyword = "",isIgnoreBlank = false) {
+                 return rawKeyword.split(this.searchBoundary).map(item=>item.trim()).filter(item=>(!isIgnoreBlank || item.length > 0));
+            },
             // 存储着text转pinyin的历史  registry.searchData.isSearchPro
             TEXT_PINYIN_KEY: "TEXT_PINYIN_MAP",
             // 默认数据不应初始化，不然太占内存了，只用调用了toPinyin才会初始化  getGlobalTextPinyinMap()
@@ -908,10 +950,31 @@
                 }
             })(),
             isSearchPro: function() {
-                let keyword = $("#my_search_input").val()
+                let keyword = registry.view.element.input.val()
                 return keyword.includes(this.searchBoundary);
             },
             searchProFlag: "[可搜索]"
+        },
+        script: {
+            // 当打开脚本项时，赋值
+            script_env_var: undefined, // 有哪些请看registry.script.script_env_var的赋值
+            tryRunTextViewHandler() {
+                const input = registry.view.element.input;
+                const rawKeyword = input.val();
+                const keywordForFill = registry.searchData.parseRawKeywordForFill(input.val());
+                if(registry.view.seeNowMode() === registry.view.modeEnum.SHOW_ITEM_DETAIL) {
+                    // 当msg不为空发送msg消息到脚本
+                    if( keywordForFill.length > 1) {
+                        // 通知脚本回车send事件
+                        const msg = keywordForFill[1];
+                        registry.script.script_env_var?.event.sendListener.forEach(listener=>listener(msg))
+                        // 清理掉send msg内容
+                        input.val(rawKeyword.replace(msg,""))
+                    }
+                    return true;
+                }
+                return false;
+            }
         }
     }
     let dao = {}
@@ -1563,7 +1626,7 @@
   }
 }
 /*输入框右边按钮*/
-#controlButton {
+#logoButton {
     position: absolute;
     font-size: 12px;
     right: 5px;
@@ -1575,10 +1638,10 @@
     cursor: pointer;
     outline: none;
 }
-#controlButton:active {
+#logoButton:active {
   opacity: 0.4;
 }
-#controlButton img {
+#logoButton img {
    display: block;
    width: 25px;
 }
@@ -2392,6 +2455,11 @@
         }
         return isArray?items:items[0];
     }
+    // 给title清理掉“h”标签
+    function clearHideFlagForTitle(rawTitle) {
+        const regex = /\[\s*[^:\]]*h[^:\]]*\s*'\s*[^'\]]*\s*'\s*]/gm;
+        return rawTitle.replace(regex, '');
+    }
     // 解析出标题中的所有标签-返回string数组
     function extractFlagsAndCleanContent(inputString = "") {
         // 使用正则表达式匹配所有方括号包围的内容
@@ -2427,9 +2495,9 @@
         let userUnfollowList = cache.get(registry.searchData.USER_UNFOLLOW_LIST_CACHE_KEY)?? registry.searchData.USER_DEFAULT_UNFOLLOW;
         // 利用用户维护的取消关注标签列表 过滤 搜索数据
         let filteredSearchData = filterDataByUserUnfollowList(searchData,userUnfollowList);
-        // 去标签（参数h）,清理每个item中title属性的flag
-        let clearedSearchData = clearHideFlag(filteredSearchData);
-        return clearedSearchData;
+        // 去标签（参数h）,清理每个item中title属性的flag , 下面注释掉是因为清理后置了仅在显示时不显示
+        // let clearedSearchData = clearHideFlag(filteredSearchData);
+        return filteredSearchData;
     }
     // ############### 执行顺序从大到小 1000 -> 500
     registry.searchData.USDRC.add({weight:400 ,fun:filterSearchData});
@@ -2528,7 +2596,6 @@
 
     // 模块二
     registry.view.viewVisibilityController = (function() {
-
         // 整个视图对象
         let viewDocument = null;
         let searchInputDocument = null;
@@ -2536,30 +2603,30 @@
         let searchBox = null;
 
         let isInitializedView = false;
-        let controlButton = null;
-        let textShow = null;
+        let logoButton = null;
+        let textView = null;
         let matchResult = null;
         let initView = function () {
-
             // 初始化视图
             let view = document.createElement("div")
             view.id = "my_search_box";
             let menu_icon = "data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBzdGFuZGFsb25lPSJubyI/PjwhRE9DVFlQRSBzdmcgUFVCTElDICItLy9XM0MvL0RURCBTVkcgMS4xLy9FTiIgImh0dHA6Ly93d3cudzMub3JnL0dyYXBoaWNzL1NWRy8xLjEvRFREL3N2ZzExLmR0ZCI+PHN2ZyB0PSIxNjc3MDgxNTk3NzA3IiBjbGFzcz0iaWNvbiIgdmlld0JveD0iMCAwIDEwMjQgMTAyNCIgdmVyc2lvbj0iMS4xIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHAtaWQ9IjEzNDYxIiB4bWxuczp4bGluaz0iaHR0cDovL3d3dy53My5vcmcvMTk5OS94bGluayIgd2lkdGg9IjIwMCIgaGVpZ2h0PSIyMDAiPjxwYXRoIGQ9Ik0yMjQuMiA0NzIuM2MtMTMtNS43LTMuNy0yMy41IDguMi0xOSA5MSAzNCAxNDYuOCAxMDguNyAxODIuNCAxMzguNSA1LjYgNC43IDE0IDIuOSAxNy4zLTMuNSAxNi44LTMyIDQ1LjgtMTEzLjctNTcuMS0xNjguNi04Ny4zLTQ2LjUtMTg4LTUzLjYtMjQ3LjMtODIuMi0xNC41LTctMzEuMSA0LjYtMjkuOSAyMC43IDUgNjkuNyAyOC45IDEyNC43IDYyLjMgMTgxLjUgNjcuMyAxMTQuMyAxNDAuNiAxMzIuOSAyMTYuNiAxMDQgMi4yLTAuOSA0LjUtMS44IDctMyA3LTMuNCA4LjMtMTIuOSAyLjUtMTguMSAwLjEgMC00NS43LTY5LjMtMTYyLTE1MC4zeiIgZmlsbD0iI0ZGRDQwMSIgcC1pZD0iMTM0NjIiPjwvcGF0aD48cGF0aCBkPSJNMjgyLjcgODQ5LjljNzkuNS0xMzcgMTcyLjQtMjYzLjEgMzg1LjQtNDAxLjMgOS44LTYuNCAyLjEtMjEuNS04LjktMTcuNEM0OTcuNyA0OTIuOCA0MjkuNyA1ODUgMzczLjMgNjQwLjhjLTguNyA4LjctMjMuNCA2LjMtMjkuMS00LjYtMjcuMi01MS44LTY5LjUtMTc0LjEgOTcuMy0yNjMuMSAxNDcuNy03OC44IDMxOS45LTkxLjQgNDI5LjctOTMuMyAxOC45LTAuMyAzMS41IDE5LjQgMjMuMyAzNi40Qzg2My43IDM4MCA4NDIuNiA0NzggNzg5LjkgNTY3LjYgNjgwLjggNzUzLjEgNTQ1LjUgNzY2LjcgNDIyLjIgNzE5LjhjLTguOC0zLjQtMTguOC0wLjItMjQgNy43LTE2LjYgMjUuMi01MC4zIDgwLjEtNTguNyAxMjIuNC0xMS40IDU2LjgtODIuMiA0My45LTU2LjggMHoiIGZpbGw9IiM4QkMwM0MiIHAtaWQ9IjEzNDYzIj48L3BhdGg+PHBhdGggZD0iTTM3NSA0MTkuNmMtMzAuMSAyOC4yLTQ1LjggNTcuNy01Mi40IDg2LjEgNDAuNiAzMi40IDcwLjIgNjcuNyA5Mi4xIDg1LjkgMS4yIDEgMi41IDEuNiAzLjkgMi4xIDYuNS02LjcgMTMuMy0xMy43IDIwLjQtMjAuNyAxNS4yLTM3LjkgMjUuMy0xMDUuNy02NC0xNTMuNHpNMzE4LjggNTQ4LjJjMS42IDM2LjEgMTQuNyA2Ny42IDI1LjUgODguMSA1LjcgMTAuOSAyMC4zIDEzLjMgMjkuMSA0LjYgNC45LTQuOSAxMC0xMCAxNS4xLTE1LjQtMC42LTEtMS4zLTItMi4yLTIuOCAwLTAuMS0yMC4xLTMwLjUtNjcuNS03NC41eiIgZmlsbD0iIzhCQTAwMCIgcC1pZD0iMTM0NjQiPjwvcGF0aD48L3N2Zz4=";
+            const matchResultDocumentId = "matchResult", textViewDocumentId = "text_show",searchInputDocumentId = "my_search_input",matchItemsId = "matchItems",searchBoxId = "searchBox",logoButtonId = "logoButton";
             view.innerHTML = (`
              <div id="tis"></div>
              <div id="my_search_view">
-                <div id="searchBox" >
-                    <input placeholder="${registry.searchData.searchPlaceholder()}" id="my_search_input" />
-                    <button id="controlButton" >
+                <div id="${searchBoxId}" >
+                    <input placeholder="${registry.searchData.searchPlaceholder()}" id="${searchInputDocumentId}" />
+                    <button id="${logoButtonId}" >
                        <img src="${menu_icon}" draggable="false" />
                     </button>
                 </div>
-                <div id="matchResult">
-                    <ol id="matchItems">
+                <div id="${matchResultDocumentId}">
+                    <ol id="${matchItemsId}">
                     </ol>
                 </div>
                 <!--加“markdown-body”是使用了github-markdown.css 样式！加在markdown文档父容器中-->
-                <div id="text_show" class="markdown-body">
+                <div id="${textViewDocumentId}" class="markdown-body">
 
                 </div>
              </div>
@@ -2568,25 +2635,24 @@
             document.body.appendChild(view)
             // 整个视图对象放在组件全局中/注册表中
             registry.view.viewDocument = viewDocument = view;
-
-
+            // 想要追加请看下面registry.view.element是否已经包含，没有在那下面追加即可~
 
             // 搜索框对象
-            searchInputDocument = $("#my_search_input")
-            matchItems = $("#matchItems");
-            searchBox = $("#searchBox")
-            controlButton = $("#controlButton")
-            textShow = $("#text_show")
-            matchResult = $("#matchResult");
+            searchInputDocument = $(document.getElementById(searchInputDocumentId))
+            matchItems = $(document.getElementById(matchItemsId));
+            searchBox = $(document.getElementById(searchBoxId))
+            logoButton = $(document.getElementById(logoButtonId))
+            textView = $(document.getElementById(textViewDocumentId))
+            matchResult = $(document.getElementById(matchResultDocumentId));
             // 将视图对象放到注册表中
             registry.view.element = {
                 input: searchInputDocument,
-                textView: textShow,
-                logoButton: controlButton,
-                itemsBox: matchResult
+                logoButton,
+                matchResult,
+                textView
             }
             // 菜单函数(点击输入框右边按钮时会调用)
-            controlButton.click( function () {
+            logoButton.click( function () {
                 registry.view.menuActive = true;
                 // alert("小彩蛋：可以搜索一下“系统项”了解脚本基本使用哦~");
                 // 调用手动触发搜索函数,如果已经搜索过，搜索空串（清理）
@@ -2597,7 +2663,7 @@
                 registry.view.element.input.focus()
             })
             /*// 图片放大/还原
-            textShow.on("click","img",function(e) {
+            textView.on("click","img",function(e) {
                 let target = e.target;
                 if(target.isEnlarge??false) {
                     $(this).animate({
@@ -2716,7 +2782,8 @@
                     "background":"#fff"
                 })
 
-                if(e && e.keyCode==13 && activeItem.find("a").length > 0){ // 回车
+                // 看是不是item detail内容显示中，如果是回车发送send事件，否则才是结果集显示的回车选择
+                if(e && e.keyCode==13 && activeItem.find("a").length > 0 && !registry.script.tryRunTextViewHandler()){ // 回车
                     // 点击当前活跃的项，点击
                     activeItem.find("a")[0].click();
                 }
@@ -2729,7 +2796,7 @@
             // 将输入框的控制按钮设置可见性函数公开放注册表中
             registry.view.setButtonVisibility = function (buttonVisibility = false) {
                 // registry.view.setButtonVisibility
-                controlButton.css({
+                logoButton.css({
                     "display": buttonVisibility?"block":"none"
                 })
             }
@@ -2764,19 +2831,57 @@
                 if(showNewData == null) return [];
                 // 对数据进行排序
                 showNewData.sort(function(item1, item2){return item2.expires - item1.expires});
-                // 将最新的一条由“新”改为“最新一条”
-                showNewData[0].title = showNewData[0].title.toReplaceAll(registry.searchData.NEW_ITEMS_FLAG,"[最新一条]")
-                // 添加“几天前”
+
                 showNewData.map((item,index)=>{
                     let dayNumber = registry.searchData.NEW_DATA_EXPIRE_DAY_NUM;
+                    // 去掉[新] 再都加[新]，使得就算没有也在显示时也是有新标签的
+                    item.title = registry.searchData.NEW_ITEMS_FLAG+item.title.toReplaceAll(registry.searchData.NEW_ITEMS_FLAG,"")
+                    // 添加“几天前”
                     item.title = item.title + " | " + Math.floor( (Date.now() - (item.expires - 1000*60*60*24*dayNumber) )/(1000*60*60*24) )+"天前"; //toDateString
                     return item;
                 })
+                // 将最新的一条由“新”改为“最新一条”
+                showNewData[0].title = showNewData[0].title.toReplaceAll(registry.searchData.NEW_ITEMS_FLAG,"[最新一条]")
                 return showNewData;
             }
-            registry.searchData.searchEven.event[".*"+registry.searchData.searchBoundary+".*"] =async function(search,rawKeyword) {
-                // 当处于搜索模式时，只搜索“可搜索”项
-                return await search(`${registry.searchData.searchProFlag} ${rawKeyword}`);
+            // 可填充搜索模式优先路由(key是正则字符串，value为字符串类型是转发，如果是函数，是自定义搜索逻辑）
+            const searchableSpecialRouting = {
+                "^\\s*$": "问AI",
+                "^问AI$": async (search,rawKeyword,keywordForFill0)=>{
+                    return await search(keywordForFill0,{isAccurateSearch : true});
+                }
+            }
+            // 返回undfind表示没有定义匹配对应的SpecialRouting，执行通用路由 | null表示跳过 | 返回数组表示SpecialRouting执行搜索得到的结果
+            const searchableSpecialRoutingHandler = async function(search,rawKeyword){
+                const keywordForFill0 = registry.searchData.parseRawKeywordForFill(rawKeyword)[0];
+                for(let key of Object.keys(searchableSpecialRouting)) {
+                    if(isMatch(key,keywordForFill0)) {
+                        const value = searchableSpecialRouting[key];
+                        if(typeof value === "string") {
+                            registry.searchData.triggerSearchHandle(value+registry.searchData.searchBoundary)
+                            return [];
+                        }
+                        if(typeof value === "function") return await value(search,rawKeyword,keywordForFill0);
+                    }
+                }
+                // 表示没有匹配到SpecialRouting
+                return undefined;
+            }
+            registry.searchData.searchEven.event[".*"+registry.searchData.searchBoundary+".*"] = async function(search,rawKeyword) {
+                const rawKeywordForFill = registry.searchData.parseRawKeywordForFill(rawKeyword,true)
+                // 如果是输入的是第二段的可搜索填充内容，不用再搜索
+                if(rawKeywordForFill.length > 1) {
+                    // 看当前是否有内容显示，如果没有要利用第一段搜索，否则跳过
+                    if(registry.searchData.searchData == null || registry.searchData.searchData.length === 0) {
+                        return search(rawKeywordForFill[0]);
+                    }
+                    return;
+                }
+                const specialRoutinResult = await searchableSpecialRoutingHandler(search,rawKeyword)
+                // 当没有优先Result, 只搜索“可搜索”项
+                return Array.isArray(specialRoutinResult)
+                    ? specialRoutinResult
+                    : await search(`${registry.searchData.searchProFlag} ${rawKeywordForFill[0]}`);
             }
             // 搜索AOP
             async function searchAOP(search,rawKeyword) {
@@ -2905,15 +3010,14 @@
                 // 搜索使用的数据版本
                 let version = registry.searchData.version;
                 let rawKeyword = e.target.value;
-                // 过滤
-                // 数据出来的总数据
-                let searchData = []
+                // 维护registry.searchData.KeywordForFill
+                registry.searchData.KeywordForFill = registry.searchData.parseRawKeywordForFill(rawKeyword);
                 // 字符串重叠匹配度搜索（类AI搜索）
                 async function stringOverlapMatchingDegreeSearch(rawKeyword) {
                     const endTis = registry.view.tis.beginTis("(;｀O´)o 匹配度模式搜索中...")
                     // 这里为什么要用异步，不果不会那上面设置的tis会得不到渲染，先保证上面已经渲染完成再执行下面函数
                     return await new Promise((resolve,reject)=>{
-                        setTimeout(() => { // 这里模拟的是当下次渲染完成后执行
+                        waitViewRenderingComplete(() => {
                             try {
                                 // 搜索逻辑开始
                                 //	`registry.searchData.getData()`会被排序desc
@@ -2937,17 +3041,17 @@
                             }finally {
                                 endTis()
                             }
-                        },50);
+                        })
                     })
                 }
                 // 常规方式搜索（搜索逻辑入口）
-                async function search(rawKeyword) {
+                async function search(rawKeyword,{isAccurateSearch = false} = {}) {
                     let processedKeyword = rawKeyword.trim().split(/\s+/).reverse().join(" ");
                     version = registry.searchData.version;
                     // 常规搜索
                     let searchResult = searchUnitHandler(registry.searchData.getData(),processedKeyword);
-                    // 如果常规搜索不到使用类AI搜索
-                    if((searchResult == null || searchResult.length === 0) && `${rawKeyword}`.trim().length > 0 ) {
+                    // 如果常规搜索不到使用类AI搜索(不能是精确搜索 && 常规搜索没有结果 && 搜索keyword不为空串)
+                    if(!isAccurateSearch && (searchResult == null || searchResult.length === 0) && `${rawKeyword}`.trim().length > 0 ) {
                         searchResult = await stringOverlapMatchingDegreeSearch(rawKeyword)
                     }
                     return searchResult;
@@ -2956,7 +3060,8 @@
                 // 递归搜索，根据空字符切换出来的多个keyword
                 // let searchResultData = searchUnitHandler(registry.searchData.data,key)
                 let searchResultData = await searchAOP(search,rawKeyword);
-                debugger
+                // 如果搜索的内容无效，跳过内容的显示
+                if(searchResultData == null) return;
                 // 放到视图上
                 // 置空内容
                 matchItems.html("")
@@ -3002,6 +3107,8 @@
 
 
                 let matchItemsHtml = "";
+                // 真正渲染到列表的数据项
+                let searchData = []
                 for(let searchResultItem of searchResultData ) {
                     // 限制条数
                     if(show_item_number-- <= 0 && !registry.searchData.isSearchAll) {
@@ -3021,7 +3128,7 @@
                          ${getFaviconImgHtml(searchResultItem)}
                         <a href="${isSketch?'':searchResultItem.resource}" target="_blank" title="${searchResultItem.desc}" index="${searchResultItem.index}" version="${version}" class="enter_main_link">
                             <!--flag与标题-->
-                            ${registry.view.titleFlagHandler.execute(searchResultItem.title)}${titleContentHandler(searchResultItem.title)}
+                            ${registry.view.titleFlagHandler.execute(clearHideFlagForTitle(searchResultItem.title))}${titleContentHandler(searchResultItem.title)}
                             <!--描述信息-->
                             <span class="item_desc">（${searchResultItem.desc}）</span>
                         </a>
@@ -3058,7 +3165,7 @@
                 }
 
                 // 隐藏文本显示视图
-                textShow.css({
+                textView.css({
                     "display":"none"
                 })
                 // 让搜索结果显示
@@ -3068,7 +3175,7 @@
                     "display":matchResultDisplay,
                     "overflow":"hidden"
                 })
-                // 将搜索的数据放入全局容器中
+                // 将显示搜索的数据放入全局容器中
                 registry.searchData.searchData = searchData;
                 // 指令归位（置零）
                 registry.searchData.pos = 0;
@@ -3165,6 +3272,7 @@
                     let jscript = ( itemData.resourceObj == null || itemData.resourceObj.script == null ) ?"function (obj) {alert('- _ - 脚本异常！')}":itemData.resourceObj.script;
                     // 调用里面的函数，传入注册表对象
                     // 打开网址函数
+
                     function open(url) {
                         let openUrl = url;
                         return {
@@ -3191,10 +3299,23 @@
                         mount() {
                             let viewHtml = itemData.resourceObj['view:html'];
                             let viewCss = itemData.resourceObj['view:css'];
+                            let viewJs = itemData.resourceObj['view:js'];
                             // 将html挂载到视图中
                             if(this.beforeCallback != null) this.beforeCallback();
-                            registry.view.textView.show(viewHtml,viewCss);
-                            if(this.afterCallback != null) this.afterCallback();
+                            // 挂载MS_script_env_var，实现系统脚本API到视图
+                            // registry.script.script_env_var是给脚本系统通知的  window.MS_script_env_var是view页获取的
+                            actualWindow.MS_script_env_var = registry.script.script_env_var = {
+                                fillKeyword: registry.searchData.keywordForFill[1] || "",
+                                event: {
+                                   sendListener : [] // (fillKeyword)=>{}
+                                }
+                            }
+                            registry.view.textView.show(viewHtml,viewCss,viewJs);
+                            // wait view complate alfter ...
+                            waitViewRenderingComplete(()=>{
+                                registry.script.tryRunTextViewHandler();
+                                if(this.afterCallback != null) this.afterCallback();
+                            })
                         }
                     }
                     // 设置logo为运行图标
@@ -3203,6 +3324,7 @@
                         Function('obj',`(${jscript})(obj)`)({registry,cache,$,open,view})
                     } catch (error) {
                         setTimeout(()=>{alert("Ծ‸Ծ 你选择的是脚本项，而当前页面安全策略不允许此操作所依赖的函数！这种情况是极少数的，请换个页面试试！")},20)
+                        console.logout("脚本执行失败！",error);
                     }
                     // logo图标还原
                     setTimeout(()=>{registry.view.logo.reset();},200)
@@ -3248,14 +3370,14 @@
             // 如果视图还没有初始化，直接退出
             if (!isInitializedView) return;
             // 如果正在查看查看“简讯”，先退出简讯
-            if($("#text_show").css("display")=="block") {
+            const nowMode = registry.view.seeNowMode();
+            if(nowMode === registry.view.modeEnum.SHOW_ITEM_DETAIL) {
                 // 让简讯隐藏
-                $("#text_show").css({"display":"none"})
+                registry.view.element.textView.css({"display":"none"})
                 // 让搜索结果显示
-                $("#matchResult").css({
-                    "display":"block",
-                    "overflow": "hidden",
-                })
+                registry.view.element.matchResult.css({ display:"block",overflow: "hidden" })
+                // 通知简讯back事件
+                registry.view.itemDetailBackAfterEventListener.forEach(listener=>listener())
                 return;
             }
             // 让视图隐藏
@@ -3265,7 +3387,7 @@
             // 将之前搜索结果置空
             matchItems.html("")
             // 隐藏文本显示视图
-            textShow.css({
+            textView.css({
                 "display":"none"
             })
             // 让搜索结果隐藏
@@ -3638,4 +3760,5 @@
         })
     }
 
-})();
+})(unsafeWindow);
+// unsafeWindow是真实的window，作为参数传入
