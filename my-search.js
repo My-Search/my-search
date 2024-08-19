@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         我的搜索
 // @namespace    http://tampermonkey.net/
-// @version      6.8.0
+// @version      6.8.2
 // @description  打造订阅式搜索，让我的搜索，只搜精品！
 // @license MIT
 // @author       zhuangjie
@@ -19,7 +19,7 @@
 // @require      https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js
 // @resource code-css https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/default.min.css
 
-// @require https://update.greasyfork.org/scripts/501646/1416066/string-overlap-matching-degree.js
+// @require https://update.greasyfork.org/scripts/501646/1429885/string-overlap-matching-degree.js
 
 // @grant        window.onurlchange
 // @grant        GM_setValue
@@ -284,23 +284,37 @@
         // 这里模拟的是当下次渲染完成后执行
         setTimeout(callback,30)
     }
+    // 结构化的css 转 平铺的css
+    function flattenCSS(cssObject, parentSelector = '') {
+        let result = '';
+
+        for (const [selector, rules] of Object.entries(cssObject)) {
+            if (typeof rules === 'object') {
+                // 如果 rules 是对象，说明有嵌套，需要递归处理
+                const fullSelector = parentSelector ? `${parentSelector} ${selector}` : selector;
+                result += flattenCSS(rules, fullSelector);
+            } else {
+                // 如果 rules 不是对象，说明是样式规则
+                const fullSelector = parentSelector ? `${parentSelector} { ${selector}: ${rules}; }\n` : '';
+                result += fullSelector;
+            }
+        }
+
+        return result;
+    }
     // ==偏业务工具函数==
     // 使用责任链模式——对pageText进行操作的工具
-    const pageTextHandleChains = {
-        pageText: "",
+    class PageTextHandleChains {
+        pageText  = "";
+        constructor(pageText = "") {
+            this.pageText = pageText;
+        }
         setPageText(newPageText) {
             this.pageText = newPageText;
-        },
+        }
         getPageText() {
             return this.pageText;
-        },
-        init(newPageText = "") {
-            // 深拷贝一份实例
-            let wo = {...this};
-            // 初始化
-            wo.setPageText(newPageText);
-            return wo;
-        },
+        }
         // 解析双标签-获取指定标签下指定属性下的值
         parseDoubleTab(tabName,attrName) {
             // 返回指定标签下指定属性下的值
@@ -322,7 +336,7 @@
                 this.pageText = newPageText;
             }
             return tabNameArr;
-        },
+        }
         // 解析双标签-只获取值
         parseDoubleTabValue(tabName) {
             // 返回指定标签下指定属性下的值
@@ -343,61 +357,58 @@
             }
 
             return tabNameArr;
-        },
-        // 获取指定单标签指定属性与标签值（标签::值）
-        parseSingleTab(tabName,attrName) {
-            // 返回指定标签下指定属性下的值
-            const regex = RegExp(`<${tabName}::([^\\s<>]*)\\s*${attrName}="([^"<>]*)"\\s*\/>`,"gm");
-            let m;
-            let tabNameArr = []
-            let copyPageText = this.pageText;
-            while ((m = regex.exec(copyPageText)) !== null) {
-                // 这对于避免零宽度匹配的无限循环是必要的
-                if (m.index === regex.lastIndex) {
-                    regex.lastIndex++;
-                }
-                tabNameArr.push({
-                    tabValue: m[1],
-                    attrValue: m[2]
-                })
+        }
 
-                const newPageText =this.pageText.replace(m[0], "");
-                this.pageText = newPageText;
+        // 解析所有指定的单标签
+        parseAllDesignatedSingTags(parseTabName) {
+            // 匹配标签的正则表达式
+            const regex = /<(\w+)::([\S]+)(.*?)\/>/g;
+            // 匹配属性键值对的正则表达式，支持连字符
+            const attributesRegex = /([\w-]+)="(.*?)"/g;
+            let matches;
+            const result = [];
+            let modifiedString = this.pageText;
+
+            while ((matches = regex.exec(this.pageText)) !== null) {
+                const tabName = matches[1];
+                const tabValue = matches[2];
+                const attributesString = matches[3];
+
+                console.log(tabName, parseTabName);
+                if (tabName !== parseTabName) continue;
+
+                const attributes = {};
+                let attrMatch;
+                while ((attrMatch = attributesRegex.exec(attributesString)) !== null) {
+                    attributes[attrMatch[1]] = attrMatch[2];
+                }
+
+                result.push({
+                    tabName,
+                    tabValue,
+                    ...attributes
+                });
+
+                // 将匹配到的内容替换为空字符串
+                modifiedString = modifiedString.replace(matches[0], '');
             }
 
-            return tabNameArr;
-        },
-        parseSingleTabValue(tabName) {
-            // 返回指定标签下指定属性下的值
-            const regex = RegExp(`<${tabName}::([^\\s<>]*)[^<>]*\/>`,"gm");
-            let m;
-            let tabNameArr = []
-            let copyPageText = this.pageText;
-            while ((m = regex.exec(copyPageText)) !== null) {
-                // 这对于避免零宽度匹配的无限循环是必要的
-                if (m.index === regex.lastIndex) {
-                    regex.lastIndex++;
-                }
-                tabNameArr.push({
-                    tabValue: m[1]
-                })
-                const newPageText =this.pageText.replace(m[0], "");
-                this.pageText = newPageText;
-            }
-            return tabNameArr;
-        },
-
-        // 清除指定单双标签
-        cleanTabByTabName(tabName) {
-            const regex = RegExp(`<\\s*${tabName}[^<>]*>([^<>]*)(<\/[^<>]*>)*`,"gm");
-            // 替换的内容
-            const subst = ``;
-            // 被替换的值将包含在结果变量中
-            const cleanedText = this.pageText.replace(regex, subst);
-            this.pageText = cleanedText;
-
+            // 更新 pageText
+            this.pageText = modifiedString;
+            return result;
+        }
+        // 根据单标签的元信息进行stringify
+        rebuildTags(tagMetaArr = []) {
+            return tagMetaArr.map(tag => {
+                const { tabName, tabValue, ...attributes } = tag;
+                const attributesString = Object.entries(attributes)
+                .map(([key, value]) => `${key}="${value}"`)
+                .join(' ');
+                return `<${tabName}::${tabValue} ${attributesString} />`;
+            }).join('\n');
         }
     }
+
     // 根据反馈的错误项调整templates位置，使得错误的靠后
     function feedbackError(saveKey,currentErrorItem) {
         let items = cache.get(saveKey)??[];
@@ -493,10 +504,11 @@
     let USER_GITHUB_TOKEN_CACHE_KEY = "USER_GITHUB_TOKEN_CACHE_KEY";
     let GithubAPI = {
         token: cache.get(USER_GITHUB_TOKEN_CACHE_KEY),
+        defaultToken: atob('Z2hwX3VKWktVZGtmWmFWY1pnNHJ2TGw4V1M5UjZUcGtocTQwem1hcg=='), // 该token没有什么权限，只用于访问不受限  btoa - atob
         setToken(token) {
             if(token != null) this.token = token;
             if(this.token == null) {
-                token = prompt("请输入您的github Token (只会在您的本地保存)：")
+                token = prompt("请输入您的github Token (只缓存在你的本地)：")
                 // 获取的内容无效
                 if(token == null || token == "") return this;
                 // 内容有效-设置
@@ -513,8 +525,8 @@
             return this.token;
         },
         baseRequest(type,url,{query,body}={},header = {}) {
-            if(this.token != null && header.Authorization == null) header.Authorization = "token "+this.token;
-            query = {...query,time:new Date().getTime()}
+            if(this.token != null && header.Authorization == null) header.Authorization = "Bearer "+this.token;
+            query = {...query}
             return request(type, url, { query,body },header);
         },
         getUserInfo() {
@@ -523,26 +535,36 @@
         commitIssues(body) {
             return this.baseRequest("POST","https://api.github.com/repos/My-Search/TisHub/issues",{body})
         },
-        getTisForIssues(state) {
+        getTisForIssues({keyword,state} = {}) {
             let query = null;
             if(state != null) query = {state};
             let token = this.token;
-            if(token == null) token = atob("Z2hwX1hWcVVYcWtZRlg2Tk5sRlVtWDMwSWN3RWtDdVZJSzJ0ZXNQUw=="); // 该token没有什么权限，只用于访问不受限
-            return this.baseRequest("GET","https://api.github.com/repos/My-Search/TisHub/issues",{query},{Authorization:"token "+token})
+            if(token == null) token = this.defaultToken;
+            return keyword
+                ? new Promise((resolve,reject)=>{
+                     // API兼容处理
+                     this.baseRequest("GET",`https://api.github.com/search/issues?q=repo:My-Search/TisHub+state:${state}+in:title+${keyword}`,{},{Authorization:"Bearer "+token})
+                     .then(response=>resolve(response.items)).catch(error=>resolve([]));
+                  })
+                : this.baseRequest("GET","https://api.github.com/repos/My-Search/TisHub/issues",{query},{Authorization:"Bearer "+token})
         }
     }
 
     // 从订阅标签中提取订阅链接
     let TisHub = {
+        // 将第一个tis集与第二个tis集合并
         tisFilter(source,filterList) {
             if(typeof source == "string") source = parseTis(source);
             if(typeof filterList == "string") filterList = parseTis(filterList);
             for(let filterItem of filterList) {
-                let pageTextHandler = pageTextHandleChains.init(filterItem);
-                let tabAttrArray = pageTextHandler.parseSingleTabValue("tis");
+                let pageTextHandler = new PageTextHandleChains(filterItem);
+                let tabMetaInfos = pageTextHandler.parseAllDesignatedSingTags("tis");
                 let subscribedLink = null;
-                if(tabAttrArray != null && tabAttrArray.length > 0 ) subscribedLink = tabAttrArray[0].tabValue;
+                // 一个filterItem解析出元信息返回tabMetaInfos只能有一个元素，如果是多个，只取一个
+                if(tabMetaInfos != null && tabMetaInfos.length > 0 ) subscribedLink = tabMetaInfos[0].tabValue;
+                // 如果取不出来,说明tis无效，断言不需要解析filterItem就是subscribedLink
                 if(subscribedLink == null) subscribedLink = filterItem;
+                // subscribedLink 这里是filterItem用于filter source的元素实体，下面开始过滤
                 source = source.filter(resultSubscribed=>! resultSubscribed.includes(subscribedLink));
             }
             return source;
@@ -563,9 +585,10 @@
                 })
             })
         },
-        getTisForIssues(state) {
+        // {keyword,state} .其中state {open, closed, all}
+        getTisForIssues(params = {}) {
             return new Promise((resolve,reject)=>{
-                GithubAPI.getTisForIssues(state).then(response=>{
+                GithubAPI.getTisForIssues(params).then(response=>{
                     if(response != null && Array.isArray(response)) {
                         resolve(response.map(obj=>{return {
                             owner: obj.user.login,
@@ -578,11 +601,11 @@
                 }).catch(error=>resolve([]));
             })
         },
-        getOpenIssuesTis() {
-            return this.getTisForIssues(null);
+        getOpenIssuesTis(params = {}) {
+            return this.getTisForIssues({state: "open",...params});
         },
-        getClosedIssuesTis() {
-            return this.getTisForIssues("closed");
+        getClosedIssuesTis(params = {}) {
+            return this.getTisForIssues({state: "closed",...params});
         },
         tisListToTisText(tisList) {
             let text = "";
@@ -616,19 +639,19 @@
                 }
             },
             setButtonVisibility: () => { ERROR.tell("按钮未初始化！") },
-            titleFlagHandler: {
+            titleTagHandler: {
                 handlers: [],
-                // 标题flag处理器
+                // 标题tag处理器
                 execute: function (title) {
-                    // 去掉标题内容只剩下flags
+                    // 去掉标题内容只剩下tags
                     let arr = captureRegEx(/(\[.*\])/gm,title)
                     if(arr == null || arr[0] == null || arr[0][0] == null) return "";
-                    let flagStr = arr[0][0];
-                    for(let titleFlagHandler of this.handlers) {
-                        let result = titleFlagHandler(flagStr.trim());
+                    let tagStr = arr[0][0];
+                    for(let titleTagHandler of this.handlers) {
+                        let result = titleTagHandler(tagStr.trim());
                         if(result != -1) return result;
                     }
-                    return flagStr;
+                    return tagStr;
                 }
             },
             viewFirstShowEventListener: [],
@@ -801,10 +824,11 @@
             // 旧的新数据缓存KEY
             OLD_SEARCH_DATA_KEY: "OLD_SEARCH_DATAS_KEY",
             // 标签数据缓存KEY
-            DATA_ITEM_FLAGS_CACHE_KEY: "DATA_ITEM_FLAGS_CACHE_KEY",
+            DATA_ITEM_TAGS_CACHE_KEY: "DATA_ITEM_TAGS_CACHE_KEY",
             // 用户维护的不关注标签列表,缓存KEY
             USER_UNFOLLOW_LIST_CACHE_KEY: "USER_UNFOLLOW_LIST_CACHE_KEY",
-            USE_TISHUB_STATE_CACHE_KEY: "USE_TISHUB_STATE_CACHE_KEY",
+            // 用户安装tishub订阅的缓存
+            USE_INSTALL_TISHUB_CACHE_KEY: "USE_INSTALL_TISHUB_CACHE_KEY",
             // 默认用户不关注标签
             USER_DEFAULT_UNFOLLOW: ["程序员","成人内容","Adults only"],
             // 已经清理了用户不关注的与隐藏的标签，这是用户应真正搜索的数据
@@ -856,8 +880,8 @@
             // 更新搜索数据的责任链
             USDRC: getResponsibilityChain(),
             onNewDataBlockHandleAfter: [],
-            // 新数据的flag
-            NEW_ITEMS_FLAG: "[新]",
+            // 新数据的tag
+            NEW_ITEMS_TAG: "[新]",
             // 搜索的keyword
             keyword: "",
             // 持久化Key
@@ -953,7 +977,7 @@
                 let keyword = registry.view.element.input.val()
                 return keyword.includes(this.searchBoundary);
             },
-            searchProFlag: "[可搜索]"
+            searchProTag: "[可搜索]"
         },
         script: {
             // 当打开脚本项时，赋值
@@ -1850,155 +1874,145 @@
     function editSubscribe(subscribe) {
         // 判断导入的订阅是否有效
         // 获取订阅信息(得到的值肯定不会为空)
-        let pageTextHandleChainsY = pageTextHandleChains.init(subscribe);
-        let tisHasFetchFun = pageTextHandleChainsY.parseSingleTab("tis","fetchFun");
-        let tisNotFetchFun = pageTextHandleChainsY.parseSingleTabValue("tis");
-
-        let tis = [...tisHasFetchFun, ...tisNotFetchFun];
+        let pageTextHandleChainsY = new PageTextHandleChains(subscribe);
+        let tisArr = pageTextHandleChainsY.parseAllDesignatedSingTags("tis");
         // 生成订阅信息存储
-        let subscribeText = "\n";
-        for(let aTis of tisHasFetchFun) {
-            subscribeText += `<tis::${aTis.tabValue} fetchFun="${aTis.attrValue}" />\n`
-        }
-        for(let aTis of tisNotFetchFun) {
-            subscribeText += `<tis::${aTis.tabValue} />\n`
-        }
+        let subscribeText = "\n" + pageTextHandleChainsY.rebuildTags(tisArr) + "\n";
         // 持久化
         let newSubscribeInfo = subscribeText.replace(/\n+/gm,"\n\n");
         cache.set(registry.searchData.subscribeKey,newSubscribeInfo);
-        return tis.length;
+        return tisArr.length;
     }
     // 存储订阅信息，当指定 sLineFetchFun 时，表示将解析“直接页”的配置，如果没有指定 sLineFetchFun 时，只解析内容
     // 在提取函数中 \n 要改写为 \\n
     function getDataSources() {
-        let localDataSources = getSubscribe()+ `
-       <fetchFun name="mLineFetchFun">
-         function(pageText) {
-              let type = "sketch"; // url   sketch
-              let lines = pageText.split("\\n");
-                let search_data_lines = []; // 扫描的搜索数据 {},{}
-                let current_build_search_item = {};
-                let appendTarget = "resource"; // resource 或 vassal
-                let current_build_search_item_resource = "";  // 主要内容
-                let current_build_search_item_vassal = ""; // 附加内容
-                let point = 0; // 指的是上面的 current_build_search_item
-                let default_desc = "--无描述--"
+        let localDataSources = `
+           <fetchFun name="mLineFetchFun">
+             function(pageText) {
+                  let type = "sketch"; // url   sketch
+                  let lines = pageText.split("\\n");
+                    let search_data_lines = []; // 扫描的搜索数据 {},{}
+                    let current_build_search_item = {};
+                    let appendTarget = "resource"; // resource 或 vassal
+                    let current_build_search_item_resource = "";  // 主要内容
+                    let current_build_search_item_vassal = ""; // 附加内容
+                    let point = 0; // 指的是上面的 current_build_search_item
+                    let default_desc = "--无描述--"
 
-                function getTitleLineData(titleLine) {
-                   const regex = /^# ([^()（）]+)[(（]?([^()（）]*)[^)）]?/;
-                   let matchData =  regex.exec(titleLine)
-                   return {
-                      title: matchData[1],
-                      desc: ((matchData[2]==null || matchData[2] == "")?default_desc:matchData[2])
-                   }
-                }
-                for (let i = 0; i < lines.length; i++) {
-                    let line = lines[i];
-                    if(line.indexOf("# ") == 0) {
-                       // 当前新的开始工作
-                       point++;
-                       // 创建新的搜索项目容器
-                       current_build_search_item = {...getTitleLineData(line)}
-                       // 重置resource
-                       current_build_search_item_resource = "";
-                       continue;
-                    }
-                    // 如果是刚开始，没有标题的内容行，跳过
-                    if(point == 0) continue;
-                    // 判断是否开始为附加内容
-                    if(/^\s*-{3,}\s*$/gm.test(line)) {
-                       appendTarget = "vassal"
-                       // 分割行不添加
-                       continue
-                    }
-                    // 向当前搜索项目容器追加当前行
-                    if(appendTarget == "resource") {
-                       current_build_search_item_resource += (line+"\\n");
-                    }else {
-                       current_build_search_item_vassal += (line+"\\n");
-                    }
-                    // 如果是最后一行，打包
-                    let nextLine = lines[i+1];
-                    if(i === lines.length-1 || ( nextLine != null && nextLine.indexOf("# ") == 0 )) {
-                       // 加入resource，最后一项
-                       current_build_search_item.resource = current_build_search_item_resource;
-                       if(current_build_search_item_vassal != "") {
-                          current_build_search_item.vassal = current_build_search_item_vassal;
+                    function getTitleLineData(titleLine) {
+                       const regex = /^# ([^()（）]+)[(（]?([^()（）]*)[^)）]?/;
+                       let matchData =  regex.exec(titleLine)
+                       return {
+                          title: matchData[1],
+                          desc: ((matchData[2]==null || matchData[2] == "")?default_desc:matchData[2])
                        }
-                       // 打包装箱
-                       search_data_lines.push(current_build_search_item);
-                       // 重置资源添加目标 和 vassal
-                       appendTarget = "resource"
-                       current_build_search_item_vassal = ""
                     }
-                }
-                // 添加种类
-                for(let line of search_data_lines) {
-                   line.type = type;
-                }
-                return search_data_lines;
-         }
-       </fetchFun>
-       <fetchFun name="sLineFetchFun">
-         function(pageText) {
-              let type = "url"; // url   sketch
-              let lines = pageText.split("\\n");
-                let search_data_lines = []
-                for (let line of lines) {
+                    for (let i = 0; i < lines.length; i++) {
+                        let line = lines[i];
+                        if(line.indexOf("# ") == 0) {
+                           // 当前新的开始工作
+                           point++;
+                           // 创建新的搜索项目容器
+                           current_build_search_item = {...getTitleLineData(line)}
+                           // 重置resource
+                           current_build_search_item_resource = "";
+                           continue;
+                        }
+                        // 如果是刚开始，没有标题的内容行，跳过
+                        if(point == 0) continue;
+                        // 判断是否开始为附加内容
+                        if(/^\s*-{3,}\s*$/gm.test(line)) {
+                           appendTarget = "vassal"
+                           // 分割行不添加
+                           continue
+                        }
+                        // 向当前搜索项目容器追加当前行
+                        if(appendTarget == "resource") {
+                           current_build_search_item_resource += (line+"\\n");
+                        }else {
+                           current_build_search_item_vassal += (line+"\\n");
+                        }
+                        // 如果是最后一行，打包
+                        let nextLine = lines[i+1];
+                        if(i === lines.length-1 || ( nextLine != null && nextLine.indexOf("# ") == 0 )) {
+                           // 加入resource，最后一项
+                           current_build_search_item.resource = current_build_search_item_resource;
+                           if(current_build_search_item_vassal != "") {
+                              current_build_search_item.vassal = current_build_search_item_vassal;
+                           }
+                           // 打包装箱
+                           search_data_lines.push(current_build_search_item);
+                           // 重置资源添加目标 和 vassal
+                           appendTarget = "resource"
+                           current_build_search_item_vassal = ""
+                        }
+                    }
+                    // 添加种类
+                    for(let line of search_data_lines) {
+                       line.type = type;
+                    }
+                    return search_data_lines;
+             }
+           </fetchFun>
+           <fetchFun name="sLineFetchFun">
+             function(pageText) {
+                  let type = "url"; // url   sketch
+                  let lines = pageText.split("\\n");
+                    let search_data_lines = []
+                    for (let line of lines) {
 
-                    let search_data_line = (function(line) {
-            const baseReg = /([^:：\\n(（）)]+)[(（]([^()（）]*)[)）]\\s*[:：]\\s*(.+)/gm;
-            const ifNotDescMatchReg = /([^:：]+)\\s*[:：]\\s*(.*)/gm;
-            let title = "";
-            let desc = "";
-            let resource = "";
+                        let search_data_line = (function(line) {
+                const baseReg = /([^:：\\n(（）)]+)[(（]([^()（）]*)[)）]\\s*[:：]\\s*(.+)/gm;
+                const ifNotDescMatchReg = /([^:：]+)\\s*[:：]\\s*(.*)/gm;
+                let title = "";
+                let desc = "";
+                let resource = "";
 
-         let captureResult = null;
-         if( !(/[()（）]/.test(line))) {
-             // 兼容没有描述
-             captureResult = ifNotDescMatchReg.exec(line);
-             if(captureResult == null ) return;
-             title = captureResult[1];
-             desc = "--无描述--";
-            resource = captureResult[2];
-         }else {
-            // 正常语法
-            captureResult = baseReg.exec(line);
-            if(captureResult == null ) return;
-            title = captureResult[1];
-            desc = captureResult[2];
-            resource = captureResult[3];
-         }
-         return {
-            title: title,
-            desc: desc,
-            resource: resource
-         };
-          })(line);
-                    if (search_data_line == null || search_data_line.title == null) continue;
-                    search_data_lines.push(search_data_line)
-                }
+             let captureResult = null;
+             if( !(/[()（）]/.test(line))) {
+                 // 兼容没有描述
+                 captureResult = ifNotDescMatchReg.exec(line);
+                 if(captureResult == null ) return;
+                 title = captureResult[1];
+                 desc = "--无描述--";
+                resource = captureResult[2];
+             }else {
+                // 正常语法
+                captureResult = baseReg.exec(line);
+                if(captureResult == null ) return;
+                title = captureResult[1];
+                desc = captureResult[2];
+                resource = captureResult[3];
+             }
+             return {
+                title: title,
+                desc: desc,
+                resource: resource
+             };
+              })(line);
+                        if (search_data_line == null || search_data_line.title == null) continue;
+                        search_data_lines.push(search_data_line)
+                    }
 
-                for(let line of search_data_lines) {
-                   line.type = type;
-                }
-                return search_data_lines;
-         }
-      </fetchFun>
-    `;
+                    for(let line of search_data_lines) {
+                       line.type = type;
+                    }
+                    return search_data_lines;
+             }
+          </fetchFun>
+        ` + getSubscribe();
         return new Promise(async (resolve,reject)=>{
-            let hubDataSources = "";
-            if(cache.get(registry.searchData.USE_TISHUB_STATE_CACHE_KEY)??false) {
-                let hubLisList = await TisHub.getClosedIssuesTis();
-                hubDataSources = TisHub.tisListToTisText(hubLisList);
-            }
-            resolve(hubDataSources+localDataSources);
+            // 这里请求tishub datasources
+            // [ {name: "官方订阅",body: "<tis::http... />",status: ""} ] // status: disable enable
+            const installHubTisList = cache.get(registry.searchData.USE_INSTALL_TISHUB_CACHE_KEY) || [];
+            const installDataSources = installHubTisList.map(installTis => `${installTis.body}`).join("\n");
+            resolve(installDataSources+localDataSources);
         })
     }
 
 
     // 判断是否是github文件链接
-    let githubUrlFlag = "raw.githubusercontent.com";
+    let githubUrlTag = "raw.githubusercontent.com";
     // cdn模板+数据=完整资源加速链接 -> 返回
     function cdnTemplateWrapForUrl(cdnTemplate,initUrl) {
         let result = parseUrl(initUrl)??{};
@@ -2022,7 +2036,7 @@
 
             if( index <= -2 ) return null;
             // 如果已经遍历完了 或  不满足github url 不使用加速
-            if(index == -1 || index > cdnrs.length -1 || (index == 0 && ! url.includes(githubUrlFlag)) ) {
+            if(index == -1 || index > cdnrs.length -1 || (index == 0 && ! url.includes(githubUrlTag)) ) {
                 url = initUrl;
                 index--;
                 console.logout("无法加速，将使用原链接！")
@@ -2047,19 +2061,14 @@
             fetchFuns: []
         }
         // 从config中放在返回对象中
-        let pageTextHandleChainsX = pageTextHandleChains.init(pageText);
+        let pageTextHandleChainsX = new PageTextHandleChains(pageText);
         let fetchFunTabDatas = pageTextHandleChainsX.parseDoubleTab("fetchFun","name");
         for(let fetchFunTabData of fetchFunTabDatas) {
             config.fetchFuns.push( { name:fetchFunTabData.attrValue,fetchFun:fetchFunTabData.tabValue } )
         }
         // 获取tis
-        let tisHasFetchFun = pageTextHandleChainsX.parseSingleTab("tis","fetchFun");
-        let tisNotFetchFun = pageTextHandleChainsX.parseSingleTabValue("tis");
-        let tisArr = [...tisHasFetchFun, ...tisNotFetchFun]
-        for(let tis of tisArr) {
-            config.tis.push( { url:tis.tabValue, fetchFun:tis.attrValue } )
-        }
-
+        let tisMetaInfos = pageTextHandleChainsX.parseAllDesignatedSingTags("tis");
+        config.tis.push( ...tisMetaInfos )
         return config;
 
     }
@@ -2182,8 +2191,28 @@
     }
     let callBeforeParse = new CallBeforeParse();
 
-
-    function dataSourceHandle(resourcePageUrl,tisTabFetchFunName) { //resourcePageUrl 可以是url也可以是已经url解析出来的资源
+    // recovery作用：将之前修改为 <wrapLine> 改为真正的换行符 \n
+    function contentRecovery(item) {
+        item.title = callBeforeParse.recovery(item.title);
+        item.desc = callBeforeParse.recovery(item.desc);
+        item.resource = callBeforeParse.recovery(item.resource);
+        if(item.vassal != null ) item.vassal = callBeforeParse.recovery(item.vassal);
+    }
+    // 如果tisMetaInfo中有"default-tag"属性表示标签有这个属性，属性处理器在此
+    function defaultTagHandle(item,tisMetaInfo = {}) {
+        const defaultTag = tisMetaInfo['default-tag'];
+        if(!defaultTag) return;
+        // 假设defaultTag是 h'游戏' 那下面processedDefaultTag是 [h'游戏']
+        const processedDefaultTag = `[${defaultTag}]`
+        // defaultTagContent就是 游戏
+        const defaultTagContent = parseTag(processedDefaultTag)[0][3];
+        // 这里看item.title是否已经有 '游戏'] 或 [游戏] 如果都没有才加，也就是子数据项如果手动加就，default-tag就不会生效
+        if( !parseTag(item.title).some(captureMeta => captureMeta[3] === defaultTagContent) ) {
+            item.title = processedDefaultTag + item.title;
+        }
+    }
+    function dataSourceHandle(resourcePageUrl,tisMetaInfo = {}) { //resourcePageUrl 可以是url也可以是已经url解析出来的资源
+        const tisTabFetchFunName = tisMetaInfo && tisMetaInfo.fetchFun;
         if(! registry.searchData.isDataInitialized) {
             registry.searchData.isDataInitialized = true;
             registry.searchData.processHistory = []; // 清空处理历史
@@ -2206,27 +2235,24 @@
                 let tis = null;
                 while((tis = waitQueue.pop()) != undefined) {
                     // tis第一个是url,第二是fetchFun
-                    dataSourceHandle(tis.url,tis.fetchFun);
+                    dataSourceHandle(tis.tabValue,tis);
                 }
-                // 清理内容
-                pageTextHandleChains.setPageText("");
             }else {
                 // --> 是内容 <--
                 // 解析内容
                 if(tisTabFetchFunName === "") return;
                 let fetchFunStr = getFetchFunGetByName(tisTabFetchFunName);
 
-                let search_data_line =(new Function('text', "return ( " + fetchFunStr + " )(`"+callBeforeParse.escape(text)+"`)"))();
-                // 将之前修改为 <wrapLine> 改为真正的换行符 \n
+                let searchDataItems =(new Function('text', "return ( " + fetchFunStr + " )(`"+callBeforeParse.escape(text)+"`)"))();
                 // 处理并push到全局数据容器中
-                for(let item of search_data_line) {
-                    item.title = callBeforeParse.recovery(item.title);
-                    item.desc = callBeforeParse.recovery(item.desc);
-                    item.resource = callBeforeParse.recovery(item.resource);
-                    if(item.vassal != null ) item.vassal = callBeforeParse.recovery(item.vassal);
+                for(let item of searchDataItems) {
+                    // 转义-恢复
+                    contentRecovery(item);
+                    // "default-tag"标签属性处理器
+                    defaultTagHandle(item,tisMetaInfo)
                 }
                 // 加入到push到全局的搜索数据队列中，等待加入到全局数据容器中
-                triggerRefreshNewData(search_data_line)
+                triggerRefreshNewData(searchDataItems)
             }
         })
 
@@ -2289,19 +2315,23 @@
     // 当视图第一次显示时，再执行
     registry.view.viewFirstShowEventListener.push(dataInitFun);
 
+    // 解析标签函数-core函数
+    function parseTag(title) {
+        return captureRegEx(/\[\s*(([^'\]\s]*)\s*')?\s*([^'\]]*)\s*'?\s*]/gm,title);
+    }
     // 解析出传入的所有项标签数据
-    function parseFlags(data = [],selecterFun = (_item)=>_item,flagsMap = {}) {
+    function parseTags(data = [],selecterFun = (_item)=>_item,tagsMap = {}) {
         let isArray = Array.isArray(data);
         let items = isArray?data:[data];
         // 解析 item.name中包含的标签
         items.forEach(function(item) {
-            let captureGroups = captureRegEx(/\[\s*(([^'\]\s]*)\s*')?\s*([^'\]]*)\s*'?\s*]/gm,selecterFun(item));
+            let captureGroups = parseTag(selecterFun(item));
             captureGroups.forEach(function(group) {
                 let params = group[2]??"";
                 let label = group[3];
                 // 判断是否已经存在
-                if(label != null && flagsMap[label] == null ) {
-                    let currentHandleFlagObj = flagsMap[label] = {
+                if(label != null && tagsMap[label] == null ) {
+                    let currentHandleTagObj = tagsMap[label] = {
                         name: label,
                         status: 1, // 正常
                         //visible: params.includes("h"), // 参数中包含h字符表示可见
@@ -2311,30 +2341,30 @@
                     }
                     // 如果传入的不是一个数组，那设置下面参数才有意义
                     if(! isArray) {
-                        currentHandleFlagObj.params = params;
+                        currentHandleTagObj.params = params;
                     }
                 }else {
-                    if(flagsMap[label] != null) {
-                        flagsMap[label].count++;
-                        //flagsMap[label].items.push(item);
+                    if(tagsMap[label] != null) {
+                        tagsMap[label].count++;
+                        //tagsMap[label].items.push(item);
                     }
 
                 }
             })
         });
-        // 这里不能是不是数组（上面的isArray）都返回flag数组,因为一项也可能有多个标签
-        return Object.values(flagsMap);
+        // 这里不能是不是数组（上面的isArray）都返回tag数组,因为一项也可能有多个标签
+        return Object.values(tagsMap);
     }
 
-    let flagsMap = {}
+    let tagsMap = {}
     const parseSearchItem = function (searchData){
         console.log("==1：解析出数据标签==")
         // 将现有的所有标签提取出来
         // 解析
-        let dataItemFlags = parseFlags(searchData,(_item=>_item.title),flagsMap);
+        let dataItemTags = parseTags(searchData,(_item=>_item.title),tagsMap);
         // 缓存
-        if(dataItemFlags.length > 0) {
-            cache.set(registry.searchData.DATA_ITEM_FLAGS_CACHE_KEY,dataItemFlags)
+        if(dataItemTags.length > 0) {
+            cache.set(registry.searchData.DATA_ITEM_TAGS_CACHE_KEY,dataItemTags)
         }
         return searchData;
     }
@@ -2426,9 +2456,9 @@
     // ################# 执行顺序从大到小 1000 -> 500
     registry.searchData.USDRC.add({weight:599 ,fun:parseScriptItem});
     // 监听缓存被清理，当被清理时，置空之前收集的标签数据
-    registry.searchData.dataCacheRemoveEventListener.push(()=>{flagsMap = {}})
+    registry.searchData.dataCacheRemoveEventListener.push(()=>{tagsMap = {}})
 
-    const refreshFlags = function (searchData){
+    const refreshTags = function (searchData){
         // 在添加前，进行额外处理添加，如给有”{keyword}“的url搜索项添加”可搜索“标签
         for(let searchItem of searchData) {
             let resource = searchItem.resource;
@@ -2436,15 +2466,15 @@
             let isSearchable = /\[\[[^\[\]]+keyword[^\[\]]+\]\]/.test(resource);
             // 判断是否为可搜索
             if( resource == null || !isHttpUrl || !isSearchable ) continue;
-            searchItem.title = registry.searchData.searchProFlag+searchItem.title;
+            searchItem.title = registry.searchData.searchProTag+searchItem.title;
         }
         return searchData;
     }
 
     // ################# 执行顺序从大到小 1000 -> 500
-    registry.searchData.USDRC.add({weight:500 ,fun:refreshFlags});
+    registry.searchData.USDRC.add({weight:500 ,fun:refreshTags});
     // 清理标签（参数中有h的）
-    function clearHideFlag(data,get = (item)=>item.title,set = (item,cleaned)=>{item.title=cleaned}) {
+    function clearHideTag(data,get = (item)=>item.title,set = (item,cleaned)=>{item.title=cleaned}) {
         let isArray = Array.isArray(data);
         let items = isArray?data:[data];
         for(let item of items) {
@@ -2456,12 +2486,12 @@
         return isArray?items:items[0];
     }
     // 给title清理掉“h”标签
-    function clearHideFlagForTitle(rawTitle) {
+    function clearHideTagForTitle(rawTitle) {
         const regex = /\[\s*[^:\]]*h[^:\]]*\s*'\s*[^'\]]*\s*'\s*]/gm;
         return rawTitle.replace(regex, '');
     }
     // 解析出标题中的所有标签-返回string数组
-    function extractFlagsAndCleanContent(inputString = "") {
+    function extractTagsAndCleanContent(inputString = "") {
         // 使用正则表达式匹配所有方括号包围的内容
         const regex = /\[.*?\]/g;
         const tags = inputString.match(regex) || [];
@@ -2480,9 +2510,9 @@
             }, {});
             // 开始过滤
             return itemsData.filter(item=>{
-                let flags = parseFlags(item.title);
-                for(let flag of flags){
-                    if(userUnfollowMap[flag.name] != null){
+                let tags = parseTags(item.title);
+                for(let tag of tags){
+                    if(userUnfollowMap[tag.name] != null){
                         // 被过滤
                         return false;
                     }
@@ -2495,8 +2525,8 @@
         let userUnfollowList = cache.get(registry.searchData.USER_UNFOLLOW_LIST_CACHE_KEY)?? registry.searchData.USER_DEFAULT_UNFOLLOW;
         // 利用用户维护的取消关注标签列表 过滤 搜索数据
         let filteredSearchData = filterDataByUserUnfollowList(searchData,userUnfollowList);
-        // 去标签（参数h）,清理每个item中title属性的flag , 下面注释掉是因为清理后置了仅在显示时不显示
-        // let clearedSearchData = clearHideFlag(filteredSearchData);
+        // 去标签（参数h）,清理每个item中title属性的tag , 下面注释掉是因为清理后置了仅在显示时不显示
+        // let clearedSearchData = clearHideTag(filteredSearchData);
         return filteredSearchData;
     }
     // ############### 执行顺序从大到小 1000 -> 500
@@ -2552,8 +2582,8 @@
             for(let cItem of searchData) {
                 if(nItem.title === cItem.title && nItem.desc === cItem.desc) {
                     // 修改全局搜索数据中New Data数据添加“新数据”标签
-                    if (! cItem.title.startsWith(registry.searchData.NEW_ITEMS_FLAG)) {
-                        cItem.title = registry.searchData.NEW_ITEMS_FLAG+cItem.title;
+                    if (! cItem.title.startsWith(registry.searchData.NEW_ITEMS_TAG)) {
+                        cItem.title = registry.searchData.NEW_ITEMS_TAG+cItem.title;
                     }
                     break;
                 }
@@ -2835,13 +2865,13 @@
                 showNewData.map((item,index)=>{
                     let dayNumber = registry.searchData.NEW_DATA_EXPIRE_DAY_NUM;
                     // 去掉[新] 再都加[新]，使得就算没有也在显示时也是有新标签的
-                    item.title = registry.searchData.NEW_ITEMS_FLAG+item.title.toReplaceAll(registry.searchData.NEW_ITEMS_FLAG,"")
+                    item.title = registry.searchData.NEW_ITEMS_TAG+item.title.toReplaceAll(registry.searchData.NEW_ITEMS_TAG,"")
                     // 添加“几天前”
                     item.title = item.title + " | " + Math.floor( (Date.now() - (item.expires - 1000*60*60*24*dayNumber) )/(1000*60*60*24) )+"天前"; //toDateString
                     return item;
                 })
                 // 将最新的一条由“新”改为“最新一条”
-                showNewData[0].title = showNewData[0].title.toReplaceAll(registry.searchData.NEW_ITEMS_FLAG,"[最新一条]")
+                showNewData[0].title = showNewData[0].title.toReplaceAll(registry.searchData.NEW_ITEMS_TAG,"[最新一条]")
                 return showNewData;
             }
             // 可填充搜索模式优先路由(key是正则字符串，value为字符串类型是转发，如果是函数，是自定义搜索逻辑）
@@ -2881,7 +2911,7 @@
                 // 当没有优先Result, 只搜索“可搜索”项
                 return Array.isArray(specialRoutinResult)
                     ? specialRoutinResult
-                    : await search(`${registry.searchData.searchProFlag} ${rawKeywordForFill[0]}`);
+                    : await search(`${registry.searchData.searchProTag} ${rawKeywordForFill[0]}`);
             }
             // 搜索AOP
             async function searchAOP(search,rawKeyword) {
@@ -2945,9 +2975,9 @@
                 }
                 return searchResultData;
             }
-            // ==标题flag处理==
-            // 1、标题flag颜色选择器
-            function titleFlagColorMatchHandler(flagValue) {
+            // ==标题tag处理==
+            // 1、标题tag颜色选择器
+            function titleTagColorMatchHandler(tagValue) {
                 let vcObj = {
                     "系统项":"background:rgb(0,210,13);",
                     "非最佳":"background:#fbbc05;",
@@ -2961,18 +2991,18 @@
                     "最新一条":"background:#f70000;",
                     "精选好课":"background:#221109;color:#fccd64 !important;"
                 };
-                let resultFlagColor = "background:#5eb95e;";
+                let resultTagColor = "background:#5eb95e;";
                 Object.getOwnPropertyNames(vcObj).forEach(function(key){
-                    if(key == flagValue) {
-                        resultFlagColor = vcObj[key];
+                    if(key == tagValue) {
+                        resultTagColor = vcObj[key];
                     }
                 });
-                return resultFlagColor;
+                return resultTagColor;
             }
             // 2、标题内容处理程序
-            function titleFlagHandler(title) {
+            function titleTagHandler(title) {
                 if(!(/[\[]?/.test(title) && /[\]]?/.test(title))) return -1;
-                // 格式是：[flag]title 这种的
+                // 格式是：[tag]title 这种的
                 const regex = /(\[[^\[\]]*\])/gm;
                 let m;
                 let resultTitle = title;
@@ -2981,12 +3011,12 @@
                     if (m.index === regex.lastIndex) {
                         regex.lastIndex++;
                     }
-                    let flag = m[0];
-                    if(flag == null || flag.length == 0) return -1;
-                    let flagCore = flag.substring(1,flag.length - 1);
+                    let tag = m[0];
+                    if(tag == null || tag.length == 0) return -1;
+                    let tagCore = tag.substring(1,tag.length - 1);
                     // 正确提取
                     let style = `
-                            ;${titleFlagColorMatchHandler(flagCore)};
+                            ;${titleTagColorMatchHandler(tagCore)};
                             color: #fff;
                             height: 21px;
                             line-height: 21px;
@@ -2998,12 +3028,12 @@
                             margin-right: 3.5px;
                             box-shadow: rgba(0, 0, 0, 0.3) 0px 0px 0.5px;
                         `;
-                    resultTitle = resultTitle.toReplaceAll(flag,`<span style="${style}">${flagCore}</span>`);
+                    resultTitle = resultTitle.toReplaceAll(tag,`<span style="${style}">${tagCore}</span>`);
                 }
                 return resultTitle;
             }
-            // 3、添加标题处理器 titleFlagHandler
-            registry.view.titleFlagHandler.handlers.push(titleFlagHandler)
+            // 3、添加标题处理器 titleTagHandler
+            registry.view.titleTagHandler.handlers.push(titleTagHandler)
             // 给输入框加事件
             // 执行 debounce 函数返回新函数
             let handler = async function (e) {
@@ -3025,7 +3055,7 @@
                                 const searchBegin = Date.now();
                                 let searchResult = overlapMatchingDegreeForObjectArray(rawKeyword.toUpperCase(),[...registry.searchData.getData()], (item)=>{
                                     const str2ScopeMap = {}
-                                    const { tags , cleaned } = extractFlagsAndCleanContent(`${item.title}`);
+                                    const { tags , cleaned } = extractTagsAndCleanContent(`${item.title}`);
                                     str2ScopeMap[cleaned.toUpperCase()] = 4;
                                     str2ScopeMap[`${item.describe}${tags.join()}`.toUpperCase()] = 2;
                                     str2ScopeMap[`${item.resource}${item.vassal}`.substring(0, 2048).toUpperCase()] = 1;
@@ -3093,8 +3123,8 @@
 
                 // 标题内容处理器
                 function titleContentHandler(title) {
-                    // 对标题去掉所有flag
-                    const { cleaned } = extractFlagsAndCleanContent(title)
+                    // 对标题去掉所有tag
+                    const { cleaned } = extractTagsAndCleanContent(title)
                     title = cleaned
                     // 如果带#将加上删除线
                     let style = "color: #1a0dab;";
@@ -3115,7 +3145,7 @@
                         break;
                     }
                     // 显示时清理标签-虽然在加载数据时已经清理了，但这是后备方案
-                    // clearHideFlag(searchResultItem);
+                    // clearHideTag(searchResultItem);
                     // 将数据放入局部容器中
                     searchData.push(searchResultItem)
 
@@ -3127,8 +3157,8 @@
                          <!--图标-->
                          ${getFaviconImgHtml(searchResultItem)}
                         <a href="${isSketch?'':searchResultItem.resource}" target="_blank" title="${searchResultItem.desc}" index="${searchResultItem.index}" version="${version}" class="enter_main_link">
-                            <!--flag与标题-->
-                            ${registry.view.titleFlagHandler.execute(clearHideFlagForTitle(searchResultItem.title))}${titleContentHandler(searchResultItem.title)}
+                            <!--tag与标题-->
+                            ${registry.view.titleTagHandler.execute(clearHideTagForTitle(searchResultItem.title))}${titleContentHandler(searchResultItem.title)}
                             <!--描述信息-->
                             <span class="item_desc">（${searchResultItem.desc}）</span>
                         </a>
@@ -3138,7 +3168,7 @@
                 }
                 matchItems.html(matchItemsHtml);
 
-                let loadErrorFlagIcon = "data:image/svg+xml;base64,PHN2ZyB2ZXJzaW9uPSIxLjIiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgdmlld0JveD0iMCAwIDIwMCAyMDAiIHdpZHRoPSIyMDAiIGhlaWdodD0iMjAwIj4KCTx0aXRsZT5hcDh6Yy12cm1kbzwvdGl0bGU+Cgk8ZGVmcz4KCQk8aW1hZ2UgIHdpZHRoPSIxOTQiIGhlaWdodD0iMTk0IiBpZD0iaW1nMSIgaHJlZj0iZGF0YTppbWFnZS9wbmc7YmFzZTY0LGlWQk9SdzBLR2dvQUFBQU5TVWhFVWdBQUFNSUFBQURDQ0FZQUFBQWI0UjB4QUFBQUFYTlNSMElCMmNrc2Z3QUFIWjFKUkVGVWVKenRYUXU0SkVWMXZzUmdpQ1lLdmpVKzhCRk5RREJDZ3ZMNTJnQVNnV0FJNXFyTDNlbnFxYTQ3M1QzTDFTV0o4YTJicUtnSmo1QVk4a0dJSmlDSjhqSVFKUVlSQ0JCV1dJS0NLQVo1aU1ndVlGWjJlY2d1N0M0NXA3cm0zcDY1M1QzZFBWVjlxbnU2disvLzdtVjFvYnZPK2F0T1ZaM3puNW1abE9lSko1NW9NUUc2M1lXWkR2ZG5HQTltbUVENE00NEhQejM0TS9rekgrVGZnYi92Q3Z3OWxQL3N3TC9UeFg4djc4OXdIczY0cmt2K3ZYVkg2a1A5WW5VQjUzeW0wdzNCV1FHOG1KUHJSeWpod3UvZHJqK3pkdTFhOHZHcEMxb2lGSVRyd293c0ltZHpTSjArRHlKaTRtclNCZlI2UGZMeHN4VXRFY1pnQmN5cUR1K0I0MVBQOXBxZ1FpeGN3YWpIMWlhMFJFakE3T3h4VVd6UEIrR0dCUTVzQ0xoYXVHNjdVclJFVU1CNE9wcjFHekx6bHlTRjU2MG10MFZMQkFJSUlhSlFvYVR6ZExzTHorNXcvN2RoOVhnSGhCMS93b1IvTXV3ZHpnUkNmUlgrOTNXQVd3RWJBVDlUMkFaNFF1SEJ3Wi9EMy9rUi9QMmJ3Qm12Z1BjNUgvNzVkSWNIZitIeVlKN3gvcUdjaDY5eVhYZTNTa2lCcXdTTXlZb3AybXhQTFJGY1VjejVPZWUvMnVtR2I0SFllalhqL21ud1o5Y29SMzZpWXR3SjRkcEZnT05ody83dWJ0ZmZDMWF6WHpCRkNvZUhzRXA0NVBacWlhRDVZMlg0STNLRUNXNndweVBDVmVCc2Z3ZXo4M2ZnejdZVE9IMU8rQS9BejR0aE5mbG9Wd1FIOVhxOXArZ2xSSFEwN016UGs5dXdKY0lFaU9ML1VHMStrd0Zod0M4NnZQZEdJTXBuNEordnAzZnVpZkFva1AwYkVHSzlIMWF3L2ZXU3dvZEp3aWUzYVV1RWdzQ2xQYzJvczdQSC9iS003WGx3THN4NkQxdmd3S1p3SzZ3V24zTGQzajVhU2RHZ2U0bkdFc0ZOQ1g4d25vWlovMjB3czUzRmFHSjhhbndQUXlqUFcvMFNMV1RnUVNQMkVJMGpRcmZiVDd6eEZVSThWNFlLWG5DN0JjNW9BM1pnK0FRaDR5eUdoWk1TQWsvZVptZG55ZTAvOVVUQTlJR2t5eTlYaEsrSG4rY0FIclBBK1d6RjNSQkNmZ2htOW1kTVNnamNRMUQ3d3RRU2dZMWNoTUd6QzRRL1IrS01aNEdUMVFpd1QrTCthYzc4L0NzbkpjVEttdTBmYWswRTExMHpsUEVaeGYvaE1SQzMza0x2VkxYRzQ3aUhjbDMvMXljaVJJM3ltV3BMaE5Fa09GamFENEdmTjFqZ1JFM0NEb1poWmEvMzh2SmtxTWZxVURzaVlCRktuQVN1Q0ZiQXovVVdPRTJUc1ExVzJWTW0yVU80d3U2OVE2MklnRm1TZzcxQXQ5dC9VWlRURSt5MHdGR21CVC9EazdmWjJka25seUtEeFNkTHRTRUNsanJpcVZDVVBoQWV6L0QybE40eHBoWGZnd25wNERKa1FEZ1doa3JXRTJIRllucTBQSnA3TStCL0xYQ0VGaEhPZ2ZqL1dlVUlZVmVvWkRVUlZzcTdBVXlBVzdPN3l2aHN3eUQ3c0ltSnNGZUdESGp4U2UxajFoTUI4MWdjR1ZkaU9vVE01NmMyZUlzc2lPQ0NVcXNERDZ6WU4xaEpCSWRqaHFPN204b0UzVUZ1NUJaNWNhOHIvTU1Ma3dIMmZxZ0cwaElodmhKd1dVTzdEOFNRTjF0ZzJCYkZzZFAxd2hQTG5DdzVEbDJacUZWRWtDZER3bC9aOEpUb2FjRjZwOWQ3Y1ZFeWNIN3NkQk1CTXlCVktFUnR3QmI2Y0gveFk5WndwaVBFZEJKQmJiS3V0TUJ3TGZUamNjY0xqczFIZ2lWVXJhWkJUZ1RNWTRHQitvRUZCbXRoRWp3NEJmWU5UeHBIZ0RpcURKTklpZUJ3LzBBbWwwOExETldpQW9UL2dXb2dTVTZmQmhSVGJqUVJaSzJ3RjJ5bE4wNkxpbkd0NDZ4K0ppdEFoaW8wVzBtSUVKME1ZYzQ3dVZGYTBPRDdFUGE4Z0JVZ2crbEx0OHFKSUpYYjJrdXlGbDU0UjBlSWx6SkwwakVxSllMTC9RWFc1Z3VaeGxad21xOHhFYndIa3hRZEovaTFZOEp3RHhRdjZIWjcrN2xld0pVazVRTVd2T3VkaGRRMGhEa3lWRVlFeHdzRmEwbGdFdmVnOWlyRTAwL1BOU21oamlxRXFFckZqL0s5YnlzU0ptRk5RMjJKQUJ2ak9kYUdRNmF3RlFqdzRZV0ZoVjhxNlFDN29MUWxvMDFzL0I2S0tlY2hBcFBIcXZySllKd0l3T0NqV0xzeE5vVnJPNkwvbTFyczVLN1pIVmFIZjJSMHEvWU51SnJsSVFMdUYrYm05QjZyR2lXQ085Ly9IWGp4Unl4d21NWUI0M3lVck5ROU14SVhQMTJlTjFsUGQ0aGtqQWl3ZkwwTVFxTDdxQjJtZ2RnT29WQ29td0J4Uk9Xdy9pY1lRVG1zV3BWeWJwNzFrY0VJRWFUYVFhc3RaQUpiWGVFZmJaSUVRNnVEbEhIQlhnd1ZmeWZzZWZLU1laWFh0NU1JTXAra1ZaZ3pBRlNoNng5YUZRbmlRUExCTzJ5bzhIdDNxcjFsWlRmUDJvbmc4T0RUOUU3VE1Jamc1OWl0aDRJRUErQmRSTVdiNlMzWUxpc1BFVndOOXd0YWllQUkvdzhxSEtocHdXT3dHaHhCU1lJNHF0eE1ZMWJ5M056QzAzS1JZY0pWUVJzUmxFN21GZ3NjcDBuWWpyTHQxTTQvaWs2bjgxUjR0MU9yR0FQNC9pL2xJUUlXOUt5ZG9QbWhGaUpBakxZcmJJNnZzOEJ4bW9UdFRJUmRhcWZQblB4UWNOa0xIakkrRmpBT2Vjamc4dkphU1ZxSWdHMkpMSENjSm1Henc4UERxQjA5RHpwZThHcDQzN3NNajhlRHE3eitLOGFUd1M5ZHZ6QXhFYkFCSDdPNjQyVHRjQnUyaktWMjhDSlkxZXM5bjVsWElsOHZJdzlEZHdzVEVTR0tGY003TEhDZXB1QlN2SU9oZHV3eWtPa1Joc05qN1AwMmxnaVlnbEdDREJNUkFmNmpKMW5nUEUzQUR0UUNRaVVQYW9lZUJFbzIva2FENDdUVjdmVitZendaaXU4VlNoUEI4WUlEV0JzU2FVQjRCL1VkZ1U1MGd1QTU4RjAvTkRoZVYyRm5wSEZrY0FwbXFKWWlndXJDMkhhbm1RdzdVZGdZaTltcG5WYzMxRVhZWmxOajUzSS9HRWNFUkpHOWJpa2lZQUdJQlk1VVkvZzNZNnNyYW9jMUNXYysrSDFtckFiRmZ5QlAvWUxEODk4NEZ5YUNXdnFNc2IyaHdNYm1HQzZjaHc0Q3c3c0x0YU5XQWJXNU5UT21Jdno3Y1VSQTVMMWtLMHdFMWFlQTJyRnN3K095NUZHRVowVEx0bit3SThKOXNWNjRiT1ZZRTRBSm1FQ0dLd3lOK1hZYzQzRkV5TnU3clJBUk9QZGZ3OW9OY2h6cjBQR3h1b3ZhNld3RjlycGoyRXpFeVBqN2w0MGpBc3NaSGhVaUFpcVZXZUI4MU1DSjRBdTZTaVNuQVNxTjI0Zzk4QVorSEJuY0hQY0t1WW1nYnBDcG5aQWExN0w1MVh0VE8xWWRBYUhqMllac2NqM3V1YkxKb0pFSThDKzgzQUpISkFOSzFzdVkxN0ltZUhXQmtubTgxNFJ0SEI3OFlUWVJzUGxNdHQxeUVVRjF0U2QzUmlMc1VPcDhha0R0YVlCWE55aTlXeE0yK3U2NFN6Wm56S1k1RnhFTTd2enRod2hYeHdlMENrSGFKb09KNE1zbTdLVDJJWm1yd3NKQ2VtYnFXQ0lvU1JaNmh5UWhRZkRGMGNHMG9RTmtuZUc2L2VjeEUvZFFVY0pmZG5qa3BhL21ZNGtBLzRKenlCMlNCZytwSkxLaHdleDBPdVRPVkhjd3ovOVRFelp6UmZpbUxDSmszVFJuRWtHcEZVL252WUVJejBnYXpHNVhqM3pJTkVQbXFvbmdKdjEyazlJejJXa1hUaklaTW9rQVM4bGZrenNrRVZ6UFB6SnBJQ0ZVSkhla0prQTFHZFJ0dDUycWRqNmREQ21LRjZrUHlna3lZemVDOXNOMWd6MFRpV0JJalhrYUFXVDRxbTY3T2NML3kwd2lwT3dUVWgvSEN4bTFNMUlpclN5d1NFWmppMnlvZW1mZG9mZjltTitWUllTa2pwMnBEL3lGZGRUT1NJbDBNZHIyUWswbmxHaVlWdHRCU1AvdUxDSWtkZDlKZkJSVHlaMlJFa3E3SjNFZ3V3WTd0MHdibkY3dnhUQ20yM1RhRGxidGIyb2hBdXkrajZkMlJHcW9yTW4wd1p5ZkozZWlwb0J4Ly9PYTdiY0RVK0JUN1Nmd1B1aTRzVVRBQktiYnFCMlJHdTU4LzdleWlCQWhyTFFwZGxPaFNqdjFWclBKSG5KWmwydkRJZTZ5WjZwdmt1TkU4TUxaOFVRWTNqc3d0ZXhpWGdzV2p6dndaM2pLaEduQWFlZlhMU0pBWFA5dm1tMTR6VGliWlJQQkMwK2tka0lib0ZTOUN4QWhQenJkTmw5cE9SSGt2WTFPRys0YzE3RXprd2pNcUJSSG5lRGZiSW9JQStES2dRKzFFOW9BcFl5aXRRY0RyTTdIWm8xL1BJRnllRFdJYnVVc2NFSTcwQlhCUWNiSm9NS3Fic0lHYnRxZ094cVIvYWF6OWdteDA3L2gxU0RhWUpBN29FVzQyNW1mZjZWcE1peUhML2NWMDVicGloMkJ0TnBQQkQ5WEdSTEprMUJNQkd4NFJlREIxeTF3UHR1d2hYbmhSNG8weFRaQkRCUzNiWG9ZRlRVeDFOdkFFUFllYjBzZFY1NndJc2hyYVdDUUJZNW5LN0FUME8xS09lRWNXSFpQeDd3V21GVSs1SGgrSDNzRllCcHc1dm0xRG9oUVNwUTBOWXlDYjd4U3M5MU9TaHZMK01YYTR1TncvMEFMbkswcEFNSUVwM2E2dmRkcGNmNUVRcWc0RjFhTEZSTjBpckVOS3YxZHB5MnV6UnJId1lRUzN4KzBNbzVtY0FQMmxwc1pxN1F3R1RBWjBIWHJueUtPSzZ6bThYOU1oVnlwSyt6d2l1Q0Y1MXZnTkkyRlZNTHovRS9nU1ZUV0JtNVNPRjV5TGsxZDRJaHdsZTZ4ZDBXd0ltMjhCdVdiOGZ1RGpkVE9Na1hBRGVIbFFJeVA0YjRpUGROMUFzQUt3UXRLbzlzQUpjMmlkYnpWS3BNeVZ2NFNFZFNKQ0xWelRETWVBVndDUnZrZ0xOWDc2dzJqL0ltNlRWWlBCS2xjcDNkOGVYQnU2dmp3R0JFNjg4SHZXZUFNTFphd1FRb0tDLzlvSFdGVWxucURiVEJSd29uOW10UEdabEJvcGU0UHd2ZFpZUHdXU1lpT3RNL0JYQnlWaGxDS0RERFprVHQ1SHFoemY5M2p1RDFyUWxra0FzdysvMHh1OEJaNWNBL01ZQjlYMmtDTlhCVVlEOTl1Wk93ZzVFd2JteVVpZU1IMUZoaTVSWDVzUTFGZHdHdlRqRHVLK2hBaGVLZUpNWVB2NzZTTkRXcFZEWWp3ZnhZWXQwVng3QURIK1JmT3c1ZWxHWGtSSmZzUFYwNkVTR0xUd0ZqNUgwc2JHOVNxbXNGbWRoWVl0TVZrMklhR3poTENyVU1sbmV1NmVJcnpPU05qRkpXREpxK1c4LzIyVUw5SmdPWC9uNUtOYmJmeVJzZUxhak1Va2U4eU1UYlpCZjMrektEN0lia1JXK2lCT2dvZlBpSzBqQWdRaGNqRVFUekRIM3BQNGIvTDROamNQam91QTJDK0ZzWmtQV3JqdGRBSEpkTTVaR2hxS1h2WFhTTm5mQ2I4bEJrNWlHUmRlSENmd2JGNU5PMi9qYmZ3V0tYekFXcmp0ZENIWlVUZ2RLdEJ0eHVKRjZRNjRHQkdkbnY3T0Y3d0k5TmprNnBWaFNXendJWVRxSTNYUWlORTJCMHlNdEZxZ0tkVWlVNDNSQUIzTjVpSTE4THZXNnNZbXpTdEtoZFhCQVBpU2kzb3NETmVTVWNoV0l6NS9Vbk94a1lJb0xSMWI2MXlmTkswcWlRUkRPakp0Q0NELysyNGdic1Z5OFpndHV0QTN5a0plRUtwMUtxSjdxMWtIbFBpSFF2K2NnbTlBVnZvZ09QNTc0MGJ1RW9TT1BQQk1oTGdIWlVyL01QVjNjQ2QxT09UMXZOaXNGbStndm9GVzJqQmc3MWU3K2xMeHExbWt4eGxKdmdxNUZtek8xYmp3ZWJ6WkJhbDdkalZiU25xNnBsd2ZCcXRDTmVRdjJBTERVYVdzKzZpY1dmNzVzczJjVC9neUJETTN3dWM2VXVzb2sxdmFRaC9KVXNnZ2hSYVkyM0NYUk93bmZWNkwyY1Zoa1dvNVlvaGhicUgwaXJyYmdxd0tYWlpBaEV3UlIxL3VaSDZCVnRNYU9Cb05vNFoxK3hwRVc3Q1ZYNy9GNmkvdmRBNHhSckh4eUZ6alpnSS9vZjZCVnRNQm5ETS9VYU5hMHIzQ05YaG9teFhlVUpGL3UyRk1IckhFcnRyd1YrbXVrVlVBN0JPYWh5SndWSGcwcEdnYnNsSXh2c3FOODEvd0lMdkxnNGV6TEhFZTQwMWtnaTZsY1dvc1JNekRWM3VMK0FGQ2pZRlBDWU05NWdUNG9WU0lRRnYwa1h3RGZqLzNXL0J1Mm93cnU4TmIyQm5wYml0TkxCQUkrdlpMMFNDQXY0SG1lNkdIaFVpcmVmRm9Dam5VdW9YMUlTTllQaFA0YVl4cjNHRkVNL2wzSDhOMXNsaUJSTktOenBlK0g3Wk9vc0hwNmdTMW90VkdHQ2ozTTBqcy8zK3J5U0dNUEVVaHdLNnFaaWdoNkVDa2dnM2tYaTBpUHNCcklpejRIc25nanphVFNDQ0pMcUpYcmVWZnB3WC9BQ2NWNkIycThrTjRvQTRRSklqd01uK3huQ21aRjVjbmhuS2pKeVZZM3dmbDRmRWs1OUJVaHltR1NRNWlkUnk1Y0YxRm56cnhFaEtVV2N4SXB4Ri9ZSWxjUU9HT2xqTVlab0FLVFBucnJDSzhDcXlKdE1SWHBTWENHV2dOdUZhbTNkUVFyVkZXelpCU0NLb3RGM3lsOHdMcVZIRGczZGl6RXBCZ0ZISUJMSklTZTBoZ3ZHNEY4T1dwUGRhaFNIT0JDU0Fiem9FZmo1SWJXK3RHTGxyWWQ1U1U4RVpWZFJNLzVJNWpJNGJROVQyb1hiK0ZNZDdQZ3pxWitBOWYxend1NUJBRzVRSTFmVUtWOHNOZlJ4ZWNHSHM5L1dMRXY2d2o0RU44cE9XclFZcG9VNHVSQTA3N0w0bExnRk1BVm4ycldJUUdobFREZENHeDNIamluazAxTTZlQnhpcXVXNndKODZvS25RNkZqZmdDSG1TNVlYSG9CQXd0dW5DMWFUc2Z3ZWRYNG5iM29yNVl2amZIQ0pDU1JKZ2tReUVYQTliWUhmdGZwUWtwVGxvSGorampwU29YeklONjJCanVpKzFjOXNNSEI4MVZsdnd3bWdRTW81emVOempZS2lBWk1KTkpQcUI4b1ZUQVk5WllIdmQySkEwRHAxQUVRRm1yQU1zZU1sUmJJZFo2Yzl0RFlOc0E0dmRpWUF6Znd0WG83ZzhKSjc4d0o4ZkJiOS9VclVIdTR2WmxobHFIdXVTaURBWVEzVWtTUDZTaTFDbk1HOFlmZEVXbVVUWWxEQ1d1TkZGNVlaV3ZNMUx5c2NhSVlLTW0renBuYllPbHFybnhGOTAyanBMRmdWdTBpMndtL1ZRQnhtWlJNQVRobHVvWHhSdmIrZm1GcDQyK3FLcmlLVkliSWNwcmRER1FRVGhNaUtNZHRXMG9XNVpiZm9TenJOYkltUVN3UXYrbHRwMmRVQlM4M2k4V1I4aUF2YjJJbjdSVFVra2tDOUxvTVJRSnpDWkMwWHZhTFpqTk9SbUkvdlBxSkdnV2FtOVBOaVNSb1RSRjI0eERCWDdranVhNWJoM21WK0pCQ0pnelNueGkyNUxKWUlJR3Q5eGZpSWlSRTFEa2s2TldpemgwbEcvR28wMDVLUE9uQitsZkZtOEtVMGpnOFBiVlNHVERNSi9LOE1iZUhxSHN4VW5qZnJVbkJETGlSRHRFOEtyS0Y5V0hRT21oRWUrc2RMRHBrQVYwZSswd09uc1EzU3lsaG9XalJBaCtDemx5enE4OThaMElrUk50T3ZVSnBVQ21OZlVraUhCdDdDbUl1NUxZcm5tMCtLanFuZm9YamJTd3N4T0NBT3NhTW1RQ1pmN0FhdHhPYVVCM0xuTWo3SldoSlc5M3JNWTdXenlEK09JTUFBMm1xQjJPSnVCR2E2czNUTkVFTUVYUi8wbktWdGg2SUZZL0diQ0YvNUo3bzd6WEY5UmVsT2h5REQxS3dPVzhjWjl4MGxwcWpoQ2hQQ3ZTRjhhVlNaeXJncURqOEtOOU56Y0FybmoyUWhXTXdFdUUwRDFrbEcvR1VzRWRRMU4rT0wrelZrZDBuT1JRKzBsVU8wTkZacXAyeWFSRWtFRUYxQTdJaWxFY05Pb2Y2VGRTUTA5RURzOW1SSFhxWUlqbjVuVkpyVWN3cG1GaGVsYU5Wd2VyaUYzUkdLb1hneER4L0JwNDdYc3NXRVd3VGFwOGNJU1hjamFaTE5Zc2J0VDg5TXAxR2xpMDFkNHM5eVBvbExXUmJ0NjN1b2lSSkRTMmVRZkFiaEVOVVBYUmdRWk5zMHZ5YVd2UkNHcmxHWjNxQUZFN2RCbHdIbjRxdHBLTXVyRnh0RnNoYXh4Vy9hZ2NocjhwVWNzK0JDOEVid09pOUoxa2lGT2l1ei9qMTI5aWZOQUdmNEdjcnRaQUNuQ0ZyZDN3aVZhSmhHaTA2UGdIT29QaVdGTDlGSCttNU1LZDB6QkdUT0QyQWhYK0VkYllDOWJzRmp1bXlmVVRYd3NIbEM4OEx1SG9jcWRGM3dOOXhLd0VmNElLalQzZXIybjZDUkNIVmNFR0pQVExiQ1JEYmhyNkU0cTRTWTVGeEZRUjVUVlR5MzZJYndIVWUrdVpVV29XNzIwRXYraXRvTUZrSVZtaTdic2REcmxpSUNQT25xeTRLTUs0K3JNVFhZays0Y0podXR4VlJsM09rWHQzSVdJMEJDeDNnbXh3L05XdjJUSmh2bFc5dFFIbGRoWVRUTVp3Y0cvRXhkOHhUd3FKVjZGWlkxRGFRY09Edy9MSWdLZUt2R2FuQ0NCMFMrakhuc0xjUEdTL2NKRkFhL1NSSWdHdHZhOUV6WW9uYVFNUWt2dDExeDdCdHNKQWU5NW5nVmpUb3A0RHdTM3dENHZrd2dxOTRmODQ0d09YTFRCekwxM2NIbitwaHNFUkpocVJRdWM5SVlWL3RJdjBBb1JRYVU2ZkovNkE4MUNOa29wdHBrV2R1WXd1U0w0QVAxNEVrSUU3eG5ZS0tubW9EUVI1Q3dUbFFEU2Y2UWg0Q3lTVlMrZENtNmZxQURqdmtNOW5vVFkxT2wwbmpxd1Q5R0phaXdSVUxxY1JYSVkxQjlxRXNlbE9ueFdtRFRtdHJKcU9DSmNaY0ZZRW1IcHlOVGx4ZTB5bGdoeXBvbTZLVnJ3c2Nhd0UwVmlvenlkQWtTdzdIZ1Z3b0dQV2pDV0JBZ2ZqZ3Q0bGJuL3lVVUVsWDlVdHd1Mk10aU9QZVdpaHRvNWlPRDJ0VGl3THNBN2ZkZUNNYXdjY1lGZmg1ZXpTUzRpeUdXWCszOU0vY0VWNGhITTU1OFpVenBLN2ZoRDlpRVdYeURFWnNkWi9VeW05bTFseHk4M0VWVGwyRDBXZkhoMUVNR1gwM0tZOGx6YlZ3VWx2SEEzK1hnUkFNTEJ0VXpkODB5aW5KNmJDQWdsRlVMKzhaV0NCLzgrdWpLNEtRWGdGRkJIM05NcUJQeFQ3SzBuYlRLaEdtSWhJc2pMaXFnT2xIb0FLb1dTVkZ4TXVhQjIvamlVcUJmNUdKSFlKWnFZcFYzU2ZOWUlFUkN3QkIxTVBRQ1ZEN2dYY0J6c0tDUFZIdWxKRmE1dW5PejdzSnJOL3dyOC9xK0FhMWw5RGtWdUhOei91TzdreDlpRmlhREk4QlVMQnFJcVBLb1VwN0dNbGR6NWgrd1E5VU11LzIzYy81emNBNDJFRmJLdkhnL2Z6cnp3K0NpUno3NTJzdzd2LzY2MFNZazdBMzFFd0ZSbWUvcXVtY2Fpa3JKdFlSRjJIcDNndXo2NytGMWowaEdpUzlYd0NGZ1J6MlkyaUlieDRGeW0rZVN1RkJFUTJFQ2JmRURNNDdiNHRUM3o3Q3JoaE5uNlA4dDlWM2pWVUZwSmdieWNxQ0c1YkU5TFpCUC9nWUZ5dXVkNTlFU0lzdno4YjF2Z3JLYXd3eFhobTlqSXNhbWoyUUNURVNINGFZbnZlckFqeEV2WjBDbFlNWEl6RWU1UFpSZVhCL1BTRHBwQ29vbUpFQnVRUm9yTlFoaDA0aWdKRnNrQU1YVzNTeXNZcHFxd1NuemJjQmtqSzdIS3FTTkxDcnY4MTR4c2g2dy9SSjJJQ05Hc2hCc3Flc2ZWaVNnamRiejBaS2RMdDJjb21XbjZhRkpUdmFKRWNIaDRDSUZkSHNLcVNWT2g2Y1JFZ05saFYzako5ZFRPcXhYQ1Aza2NDWllRWWcrNjZvbFFSbkludHNrY3hTb3ZmNDRPM3JoWGJoUHVlOHpnOGZYRVJKQXp4UHo4SzIwOFlpc0x6RVROVDRUQmhoTUpVVTBTbnRLbzNWTDR1NkxDblpSdnlFZm1UcmYzT2xiOXlkRjVqdUVrUnkxRWtHU0lkT2pKblZnVEhvZUJQNkF3R1ZBK3NvTDBDOVJ4S3ZWZHNRcXVKSXduSUlTTDFXY1czTzE1M2pQWWZQNnlTMUlpUkdRSXpyVEFpYlVBOXduU0FJWEpVT3c0c2d6S1htZ3VKYWlsSEFKa2tBRnZid2tFeExZNTNEK3dDaDFhclVUQVcwcVVVcUYyWW0xazRNRi9kN3NMenk1RGh0bSttV1ZjM3ZwNndXT2x2aWU2RU10ODc0RmlOQ3Ayb0Y2bzdFNkV2U1lvVm53UnJoNm5XV29sRWRRQVlsSEx6NmlkV0NOdTczVER0eFFsZ3FsYmFKZ2RQMVQyVzVTMFRXRlNLM24xYlZXT08wWVhvMDNCYTBVRWhOTG5iOWo5UW5oUnQrdnZWY1NCSmgzSFVjZ1luUWYzVGZJZHE3eitLNHA4ZzlvclZkMDhaajErYTFVa01FWUVTWVptMWk0OERzdjFHZDF1LzBWNW5NalZITnRpcURENU44ajY4N3duWVhoaHVxbktNY1pWQzVNY3F5U0JVU0pJd3hFM0p6U0g4R0hsbE9OblZLNUgvd2huU0JYYVRQcitOK1o3YnludTlsREZZN3VaemEvZXUyb1NHQ2VDcXA2eXFkZUNYb2pndzNtY2FwSVN3cVZKUlVwVGFubHZJTlJyMDk1VjNkNmVUVENlMi9ER21vSUV4b21BUUpsMmx3ZGZKM2RhTTNoRUtYeU1JWU0va2NTOHlpdlMyY1hvbW9GaU5CNXVPTUovRit3OVRvQU4vcmNZamZEemRuaUhQNklpUVNWRVFPQ3hxaXVDS3l4d1hPMVFqYjF6eGR3bERiUUwxazFUZjZkQjdIQzhrRkdTb0RJaUlMQm5nWnB4cUFkZU42NmVHU1A3TWtEUm9uOXNpY3NpRlQ3cWJ6U0ZuWTduOTZsSlVDa1JFQ3A5OTJvTERLQVZMZy9mbDRjSW1JSXhONWN2ZlJ2REtkWGpvZEx6KzRwSjhGNXFBcEFRQVlFeHRjT0RiMXBnQ0oxNHpPRzlOK1lodzdnMFl0ZGRJMjl6VldlZnB1cEliYmNoSENJbEFpTHFjOVk0QVlDTmd4TENjVUFOSHB6eE1VRVBrOGxrSGc5WC8reGgwUS9lVTRSM1dQQk5KckNOZW1Oc0RSRVFzbzZCKzUrM3dEQWE0VjlXU21JK3ZtTElsUGJnaC9UZllnU2JLWTlJclNUQ0FOZ2VsdFcwVjFzS1BsbWFDRkpDSmRoc3dUZVl3RjBkTDNnMXRjTmJTd1JKQmg3TXdVQnR0Y0JZT3JBOXFlZy9DeGdxcWk2bVRab1E0cmdldzBacVo3ZWVDQWh3bnRlenhnalpobmZNelMwOExSOFJwSEpnZytYYy9iUHdIb25hMFd0REJJUXFMTCtjM25pVFkxeVRRdGRkczN2RCt5SnZRMTFXYWdldkpSRVFVaStKQnlldytvY0pHMXdldUhMR3h5ek8rZFY3eXp3ZTdoK29Fdlp1dGVBZHpVQUVQNEdmYjZCMjdsb1RZUUFsR2RMVWMvVG1RZ1FYWU9NT2F2OXBEQkVRcWt6eVFuTGp0c2hEZ0ovYmRGUGNLQ0tvRjl4RnlmdzE5Vml4Q2JnUzd6K29mYVhSUkJoQVNiTTN0N2FobnRpTXF3RFduVkQ3eDlRUVlaRVF3ajlhYmNhb25XQ3E0WGpoK1p3Zit3SnFmNWhhSWlCVWZjUGFLZXJSWUE5NGNJdkR3OE9vZmFBbFFneHpRcnhRaVlyVi9haTFEdGlFWVJBZWIxUGJ2U1ZDQ3FRZVo3T3J1QWdSUG93TnZZOEp3ejJvN2R3U0lTZkFjRytJZW41Uk8wOGpzSlZ4L3pSVTFxTzJhMHVFMG9UQS9KMnliWldtSGRobE16eWVRbHVvSllJaE9DTGNWKzBoU21tRlRoazI0Z0VFNWtCUjI2MGxnaUhJVFRVUFBnN0cvckVGRG1jVGRzaVZrd2Z2d0VJcGFqdTFSS2dJV0QwVzlSWUlMMkxUdlVyY0F4UERwMUhUaU5vbXRtQnFIendGa1gzSW90T21oZ2tXSjJJVGhvbXU1eCtKUjZEVTQ5OCtGajR5ZlVPRVBjeWNaTlVyUHhzRE9QNFBzQitjSy95M3RzN2ZQb1VlN0UvV0ZjRkJlSGFPalVKWXZVcElOMkREUUJUTndyQ0hlaXpicDBHUDY3cTdLYzJpUDJPWTlNZURXNWdkb2RSbTJPdGNCVDlQZGIyZzB6cCsrMVQrWUxGOXQ5dmJ6eEhoS25VYTlRVjFrWGM3MDZwTTV6K2dXbkZkQ0FROHhlWGhHZ2h6RG5kNnZSZFRqMEg3dE0vWVIrcTh1c0dlc2tTVDl3OTF2WEJXQWtzMzVWNGtEbitsK3QrUGt1b1hzcVN6L3p3TTBhaS9ZNXFlL3dmaFNwMGVHdnoyYkFBQUFBQkpSVTVFcmtKZ2dnPT0iLz4KCTwvZGVmcz4KCTxzdHlsZT4KCTwvc3R5bGU+Cgk8dXNlIGlkPSJCYWNrZ3JvdW5kIiBocmVmPSIjaW1nMSIgeD0iNiIgeT0iMCIvPgo8L3N2Zz4=";
+                let loadErrorTagIcon = "data:image/svg+xml;base64,PHN2ZyB2ZXJzaW9uPSIxLjIiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgdmlld0JveD0iMCAwIDIwMCAyMDAiIHdpZHRoPSIyMDAiIGhlaWdodD0iMjAwIj4KCTx0aXRsZT5hcDh6Yy12cm1kbzwvdGl0bGU+Cgk8ZGVmcz4KCQk8aW1hZ2UgIHdpZHRoPSIxOTQiIGhlaWdodD0iMTk0IiBpZD0iaW1nMSIgaHJlZj0iZGF0YTppbWFnZS9wbmc7YmFzZTY0LGlWQk9SdzBLR2dvQUFBQU5TVWhFVWdBQUFNSUFBQURDQ0FZQUFBQWI0UjB4QUFBQUFYTlNSMElCMmNrc2Z3QUFIWjFKUkVGVWVKenRYUXU0SkVWMXZzUmdpQ1lLdmpVKzhCRk5RREJDZ3ZMNTJnQVNnV0FJNXFyTDNlbnFxYTQ3M1QzTDFTV0o4YTJicUtnSmo1QVk4a0dJSmlDSjhqSVFKUVlSQ0JCV1dJS0NLQVo1aU1ndVlGWjJlY2d1N0M0NXA3cm0zcDY1M1QzZFBWVjlxbnU2disvLzdtVjFvYnZPK2F0T1ZaM3puNW1abE9lSko1NW9NUUc2M1lXWkR2ZG5HQTltbUVENE00NEhQejM0TS9rekgrVGZnYi92Q3Z3OWxQL3N3TC9UeFg4djc4OXdIczY0cmt2K3ZYVkg2a1A5WW5VQjUzeW0wdzNCV1FHOG1KUHJSeWpod3UvZHJqK3pkdTFhOHZHcEMxb2lGSVRyd293c0ltZHpTSjArRHlKaTRtclNCZlI2UGZMeHN4VXRFY1pnQmN5cUR1K0I0MVBQOXBxZ1FpeGN3YWpIMWlhMFJFakE3T3h4VVd6UEIrR0dCUTVzQ0xoYXVHNjdVclJFVU1CNE9wcjFHekx6bHlTRjU2MG10MFZMQkFJSUlhSlFvYVR6ZExzTHorNXcvN2RoOVhnSGhCMS93b1IvTXV3ZHpnUkNmUlgrOTNXQVd3RWJBVDlUMkFaNFF1SEJ3Wi9EMy9rUi9QMmJ3Qm12Z1BjNUgvNzVkSWNIZitIeVlKN3gvcUdjaDY5eVhYZTNTa2lCcXdTTXlZb3AybXhQTFJGY1VjejVPZWUvMnVtR2I0SFllalhqL21ud1o5Y29SMzZpWXR3SjRkcEZnT05ody83dWJ0ZmZDMWF6WHpCRkNvZUhzRXA0NVBacWlhRDVZMlg0STNLRUNXNndweVBDVmVCc2Z3ZXo4M2ZnejdZVE9IMU8rQS9BejR0aE5mbG9Wd1FIOVhxOXArZ2xSSFEwN016UGs5dXdKY0lFaU9ML1VHMStrd0Zod0M4NnZQZEdJTXBuNEordnAzZnVpZkFva1AwYkVHSzlIMWF3L2ZXU3dvZEp3aWUzYVV1RWdzQ2xQYzJvczdQSC9iS003WGx3THN4NkQxdmd3S1p3SzZ3V24zTGQzajVhU2RHZ2U0bkdFc0ZOQ1g4d25vWlovMjB3czUzRmFHSjhhbndQUXlqUFcvMFNMV1RnUVNQMkVJMGpRcmZiVDd6eEZVSThWNFlLWG5DN0JjNW9BM1pnK0FRaDR5eUdoWk1TQWsvZVptZG55ZTAvOVVUQTlJR2t5eTlYaEsrSG4rY0FIclBBK1d6RjNSQkNmZ2htOW1kTVNnamNRMUQ3d3RRU2dZMWNoTUd6QzRRL1IrS01aNEdUMVFpd1QrTCthYzc4L0NzbkpjVEttdTBmYWswRTExMHpsUEVaeGYvaE1SQzMza0x2VkxYRzQ3aUhjbDMvMXljaVJJM3ltV3BMaE5Fa09GamFENEdmTjFqZ1JFM0NEb1poWmEvMzh2SmtxTWZxVURzaVlCRktuQVN1Q0ZiQXovVVdPRTJUc1ExVzJWTW0yVU80d3U2OVE2MklnRm1TZzcxQXQ5dC9VWlRURSt5MHdGR21CVC9EazdmWjJka25seUtEeFNkTHRTRUNsanJpcVZDVVBoQWV6L0QybE40eHBoWGZnd25wNERKa1FEZ1doa3JXRTJIRllucTBQSnA3TStCL0xYQ0VGaEhPZ2ZqL1dlVUlZVmVvWkRVUlZzcTdBVXlBVzdPN3l2aHN3eUQ3c0ltSnNGZUdESGp4U2UxajFoTUI4MWdjR1ZkaU9vVE01NmMyZUlzc2lPQ0NVcXNERDZ6WU4xaEpCSWRqaHFPN204b0UzVUZ1NUJaNWNhOHIvTU1Ma3dIMmZxZ0cwaElodmhKd1dVTzdEOFNRTjF0ZzJCYkZzZFAxd2hQTG5DdzVEbDJacUZWRWtDZER3bC9aOEpUb2FjRjZwOWQ3Y1ZFeWNIN3NkQk1CTXlCVktFUnR3QmI2Y0gveFk5WndwaVBFZEJKQmJiS3V0TUJ3TGZUamNjY0xqczFIZ2lWVXJhWkJUZ1RNWTRHQitvRUZCbXRoRWp3NEJmWU5UeHBIZ0RpcURKTklpZUJ3LzBBbWwwOExETldpQW9UL2dXb2dTVTZmQmhSVGJqUVJaSzJ3RjJ5bE4wNkxpbkd0NDZ4K0ppdEFoaW8wVzBtSUVKME1ZYzQ3dVZGYTBPRDdFUGE4Z0JVZ2crbEx0OHFKSUpYYjJrdXlGbDU0UjBlSWx6SkwwakVxSllMTC9RWFc1Z3VaeGxad21xOHhFYndIa3hRZEovaTFZOEp3RHhRdjZIWjcrN2xld0pVazVRTVd2T3VkaGRRMGhEa3lWRVlFeHdzRmEwbGdFdmVnOWlyRTAwL1BOU21oamlxRXFFckZqL0s5YnlzU0ptRk5RMjJKQUJ2ak9kYUdRNmF3RlFqdzRZV0ZoVjhxNlFDN29MUWxvMDFzL0I2S0tlY2hBcFBIcXZySllKd0l3T0NqV0xzeE5vVnJPNkwvbTFyczVLN1pIVmFIZjJSMHEvWU51SnJsSVFMdUYrYm05QjZyR2lXQ085Ly9IWGp4Unl4d21NWUI0M3lVck5ROU14SVhQMTJlTjFsUGQ0aGtqQWl3ZkwwTVFxTDdxQjJtZ2RnT29WQ29td0J4Uk9Xdy9pY1lRVG1zV3BWeWJwNzFrY0VJRWFUYVFhc3RaQUpiWGVFZmJaSUVRNnVEbEhIQlhnd1ZmeWZzZWZLU1laWFh0NU1JTXAra1ZaZ3pBRlNoNng5YUZRbmlRUExCTzJ5bzhIdDNxcjFsWlRmUDJvbmc4T0RUOUU3VE1Jamc1OWl0aDRJRUErQmRSTVdiNlMzWUxpc1BFVndOOXd0YWllQUkvdzhxSEtocHdXT3dHaHhCU1lJNHF0eE1ZMWJ5M056QzAzS1JZY0pWUVJzUmxFN21GZ3NjcDBuWWpyTHQxTTQvaWs2bjgxUjR0MU9yR0FQNC9pL2xJUUlXOUt5ZG9QbWhGaUpBakxZcmJJNnZzOEJ4bW9UdFRJUmRhcWZQblB4UWNOa0xIakkrRmpBT2Vjamc4dkphU1ZxSWdHMkpMSENjSm1Henc4UERxQjA5RHpwZThHcDQzN3NNajhlRHE3eitLOGFUd1M5ZHZ6QXhFYkFCSDdPNjQyVHRjQnUyaktWMjhDSlkxZXM5bjVsWElsOHZJdzlEZHdzVEVTR0tGY003TEhDZXB1QlN2SU9oZHV3eWtPa1Joc05qN1AwMmxnaVlnbEdDREJNUkFmNmpKMW5nUEUzQUR0UUNRaVVQYW9lZUJFbzIva2FENDdUVjdmVitZendaaXU4VlNoUEI4WUlEV0JzU2FVQjRCL1VkZ1U1MGd1QTU4RjAvTkRoZVYyRm5wSEZrY0FwbXFKWWlndXJDMkhhbm1RdzdVZGdZaTltcG5WYzMxRVhZWmxOajUzSS9HRWNFUkpHOWJpa2lZQUdJQlk1VVkvZzNZNnNyYW9jMUNXYysrSDFtckFiRmZ5QlAvWUxEODk4NEZ5YUNXdnFNc2IyaHdNYm1HQzZjaHc0Q3c3c0x0YU5XQWJXNU5UT21Jdno3Y1VSQTVMMWtLMHdFMWFlQTJyRnN3K095NUZHRVowVEx0bit3SThKOXNWNjRiT1ZZRTRBSm1FQ0dLd3lOK1hZYzQzRkV5TnU3clJBUk9QZGZ3OW9OY2h6cjBQR3h1b3ZhNld3RjlycGoyRXpFeVBqN2w0MGpBc3NaSGhVaUFpcVZXZUI4MU1DSjRBdTZTaVNuQVNxTjI0Zzk4QVorSEJuY0hQY0t1WW1nYnBDcG5aQWExN0w1MVh0VE8xWWRBYUhqMllac2NqM3V1YkxKb0pFSThDKzgzQUpISkFOSzFzdVkxN0ltZUhXQmtubTgxNFJ0SEI3OFlUWVJzUGxNdHQxeUVVRjF0U2QzUmlMc1VPcDhha0R0YVlCWE55aTlXeE0yK3U2NFN6Wm56S1k1RnhFTTd2enRod2hYeHdlMENrSGFKb09KNE1zbTdLVDJJWm1yd3NKQ2VtYnFXQ0lvU1JaNmh5UWhRZkRGMGNHMG9RTmtuZUc2L2VjeEUvZFFVY0pmZG5qa3BhL21ZNGtBLzRKenlCMlNCZytwSkxLaHdleDBPdVRPVkhjd3ovOVRFelp6UmZpbUxDSmszVFJuRWtHcEZVL252WUVJejBnYXpHNVhqM3pJTkVQbXFvbmdKdjEyazlJejJXa1hUaklaTW9rQVM4bGZrenNrRVZ6UFB6SnBJQ0ZVSkhla0prQTFHZFJ0dDUycWRqNmREQ21LRjZrUHlna3lZemVDOXNOMWd6MFRpV0JJalhrYUFXVDRxbTY3T2NML3kwd2lwT3dUVWgvSEN4bTFNMUlpclN5d1NFWmppMnlvZW1mZG9mZjltTitWUllTa2pwMnBEL3lGZGRUT1NJbDBNZHIyUWswbmxHaVlWdHRCU1AvdUxDSWtkZDlKZkJSVHlaMlJFa3E3SjNFZ3V3WTd0MHdibkY3dnhUQ20yM1RhRGxidGIyb2hBdXkrajZkMlJHcW9yTW4wd1p5ZkozZWlwb0J4Ly9PYTdiY0RVK0JUN1Nmd1B1aTRzVVRBQktiYnFCMlJHdTU4LzdleWlCQWhyTFFwZGxPaFNqdjFWclBKSG5KWmwydkRJZTZ5WjZwdmt1TkU4TUxaOFVRWTNqc3d0ZXhpWGdzV2p6dndaM2pLaEduQWFlZlhMU0pBWFA5dm1tMTR6VGliWlJQQkMwK2tka0lib0ZTOUN4QWhQenJkTmw5cE9SSGt2WTFPRys0YzE3RXprd2pNcUJSSG5lRGZiSW9JQStES2dRKzFFOW9BcFl5aXRRY0RyTTdIWm8xL1BJRnllRFdJYnVVc2NFSTcwQlhCUWNiSm9NS3Fic0lHYnRxZ094cVIvYWF6OWdteDA3L2gxU0RhWUpBN29FVzQyNW1mZjZWcE1peUhML2NWMDVicGloMkJ0TnBQQkQ5WEdSTEprMUJNQkd4NFJlREIxeTF3UHR1d2hYbmhSNG8weFRaQkRCUzNiWG9ZRlRVeDFOdkFFUFllYjBzZFY1NndJc2hyYVdDUUJZNW5LN0FUME8xS09lRWNXSFpQeDd3V21GVSs1SGgrSDNzRllCcHc1dm0xRG9oUVNwUTBOWXlDYjd4U3M5MU9TaHZMK01YYTR1TncvMEFMbkswcEFNSUVwM2E2dmRkcGNmNUVRcWc0RjFhTEZSTjBpckVOS3YxZHB5MnV6UnJId1lRUzN4KzBNbzVtY0FQMmxwc1pxN1F3R1RBWjBIWHJueUtPSzZ6bThYOU1oVnlwSyt6d2l1Q0Y1MXZnTkkyRlZNTHovRS9nU1ZUV0JtNVNPRjV5TGsxZDRJaHdsZTZ4ZDBXd0ltMjhCdVdiOGZ1RGpkVE9Na1hBRGVIbFFJeVA0YjRpUGROMUFzQUt3UXRLbzlzQUpjMmlkYnpWS3BNeVZ2NFNFZFNKQ0xWelRETWVBVndDUnZrZ0xOWDc2dzJqL0ltNlRWWlBCS2xjcDNkOGVYQnU2dmp3R0JFNjg4SHZXZUFNTFphd1FRb0tDLzlvSFdGVWxucURiVEJSd29uOW10UEdabEJvcGU0UHd2ZFpZUHdXU1lpT3RNL0JYQnlWaGxDS0RERFprVHQ1SHFoemY5M2p1RDFyUWxra0FzdysvMHh1OEJaNWNBL01ZQjlYMmtDTlhCVVlEOTl1Wk93ZzVFd2JteVVpZU1IMUZoaTVSWDVzUTFGZHdHdlRqRHVLK2hBaGVLZUpNWVB2NzZTTkRXcFZEWWp3ZnhZWXQwVng3QURIK1JmT3c1ZWxHWGtSSmZzUFYwNkVTR0xUd0ZqNUgwc2JHOVNxbXNGbWRoWVl0TVZrMklhR3poTENyVU1sbmV1NmVJcnpPU05qRkpXREpxK1c4LzIyVUw5SmdPWC9uNUtOYmJmeVJzZUxhak1Va2U4eU1UYlpCZjMrektEN0lia1JXK2lCT2dvZlBpSzBqQWdRaGNqRVFUekRIM3BQNGIvTDROamNQam91QTJDK0ZzWmtQV3JqdGRBSEpkTTVaR2hxS1h2WFhTTm5mQ2I4bEJrNWlHUmRlSENmd2JGNU5PMi9qYmZ3V0tYekFXcmp0ZENIWlVUZ2RLdEJ0eHVKRjZRNjRHQkdkbnY3T0Y3d0k5TmprNnBWaFNXendJWVRxSTNYUWlORTJCMHlNdEZxZ0tkVWlVNDNSQUIzTjVpSTE4THZXNnNZbXpTdEtoZFhCQVBpU2kzb3NETmVTVWNoV0l6NS9Vbk94a1lJb0xSMWI2MXlmTkswcWlRUkRPakp0Q0NELysyNGdic1Z5OFpndHV0QTN5a0plRUtwMUtxSjdxMWtIbFBpSFF2K2NnbTlBVnZvZ09QNTc0MGJ1RW9TT1BQQk1oTGdIWlVyL01QVjNjQ2QxT09UMXZOaXNGbStndm9GVzJqQmc3MWU3K2xMeHExbWt4eGxKdmdxNUZtek8xYmp3ZWJ6WkJhbDdkalZiU25xNnBsd2ZCcXRDTmVRdjJBTERVYVdzKzZpY1dmNzVzczJjVC9neUJETTN3dWM2VXVzb2sxdmFRaC9KVXNnZ2hSYVkyM0NYUk93bmZWNkwyY1Zoa1dvNVlvaGhicUgwaXJyYmdxd0tYWlpBaEV3UlIxL3VaSDZCVnRNYU9Cb05vNFoxK3hwRVc3Q1ZYNy9GNmkvdmRBNHhSckh4eUZ6alpnSS9vZjZCVnRNQm5ETS9VYU5hMHIzQ05YaG9teFhlVUpGL3UyRk1IckhFcnRyd1YrbXVrVlVBN0JPYWh5SndWSGcwcEdnYnNsSXh2c3FOODEvd0lMdkxnNGV6TEhFZTQwMWtnaTZsY1dvc1JNekRWM3VMK0FGQ2pZRlBDWU05NWdUNG9WU0lRRnYwa1h3RGZqLzNXL0J1Mm93cnU4TmIyQm5wYml0TkxCQUkrdlpMMFNDQXY0SG1lNkdIaFVpcmVmRm9Dam5VdW9YMUlTTllQaFA0YVl4cjNHRkVNL2wzSDhOMXNsaUJSTktOenBlK0g3Wk9vc0hwNmdTMW90VkdHQ2ozTTBqcy8zK3J5U0dNUEVVaHdLNnFaaWdoNkVDa2dnM2tYaTBpUHNCcklpejRIc25nanphVFNDQ0pMcUpYcmVWZnB3WC9BQ2NWNkIycThrTjRvQTRRSklqd01uK3huQ21aRjVjbmhuS2pKeVZZM3dmbDRmRWs1OUJVaHltR1NRNWlkUnk1Y0YxRm56cnhFaEtVV2N4SXB4Ri9ZSWxjUU9HT2xqTVlab0FLVFBucnJDSzhDcXlKdE1SWHBTWENHV2dOdUZhbTNkUVFyVkZXelpCU0NLb3RGM3lsOHdMcVZIRGczZGl6RXBCZ0ZISUJMSklTZTBoZ3ZHNEY4T1dwUGRhaFNIT0JDU0Fiem9FZmo1SWJXK3RHTGxyWWQ1U1U4RVpWZFJNLzVJNWpJNGJROVQyb1hiK0ZNZDdQZ3pxWitBOWYxend1NUJBRzVRSTFmVUtWOHNOZlJ4ZWNHSHM5L1dMRXY2d2o0RU44cE9XclFZcG9VNHVSQTA3N0w0bExnRk1BVm4ycldJUUdobFREZENHeDNIamluazAxTTZlQnhpcXVXNndKODZvS25RNkZqZmdDSG1TNVlYSG9CQXd0dW5DMWFUc2Z3ZWRYNG5iM29yNVl2amZIQ0pDU1JKZ2tReUVYQTliWUhmdGZwUWtwVGxvSGorampwU29YeklONjJCanVpKzFjOXNNSEI4MVZsdnd3bWdRTW81emVOempZS2lBWk1KTkpQcUI4b1ZUQVk5WllIdmQySkEwRHAxQUVRRm1yQU1zZU1sUmJJZFo2Yzl0RFlOc0E0dmRpWUF6Znd0WG83ZzhKSjc4d0o4ZkJiOS9VclVIdTR2WmxobHFIdXVTaURBWVEzVWtTUDZTaTFDbk1HOFlmZEVXbVVUWWxEQ1d1TkZGNVlaV3ZNMUx5c2NhSVlLTW0renBuYllPbHFybnhGOTAyanBMRmdWdTBpMndtL1ZRQnhtWlJNQVRobHVvWHhSdmIrZm1GcDQyK3FLcmlLVkliSWNwcmRER1FRVGhNaUtNZHRXMG9XNVpiZm9TenJOYkltUVN3UXYrbHRwMmRVQlM4M2k4V1I4aUF2YjJJbjdSVFVra2tDOUxvTVJRSnpDWkMwWHZhTFpqTk9SbUkvdlBxSkdnV2FtOVBOaVNSb1RSRjI0eERCWDdranVhNWJoM21WK0pCQ0pnelNueGkyNUxKWUlJR3Q5eGZpSWlSRTFEa2s2TldpemgwbEcvR28wMDVLUE9uQitsZkZtOEtVMGpnOFBiVlNHVERNSi9LOE1iZUhxSHN4VW5qZnJVbkJETGlSRHRFOEtyS0Y5V0hRT21oRWUrc2RMRHBrQVYwZSswd09uc1EzU3lsaG9XalJBaCtDemx5enE4OThaMElrUk50T3ZVSnBVQ21OZlVraUhCdDdDbUl1NUxZcm5tMCtLanFuZm9YamJTd3N4T0NBT3NhTW1RQ1pmN0FhdHhPYVVCM0xuTWo3SldoSlc5M3JNWTdXenlEK09JTUFBMm1xQjJPSnVCR2E2czNUTkVFTUVYUi8wbktWdGg2SUZZL0diQ0YvNUo3bzd6WEY5UmVsT2h5REQxS3dPVzhjWjl4MGxwcWpoQ2hQQ3ZTRjhhVlNaeXJncURqOEtOOU56Y0FybmoyUWhXTXdFdUUwRDFrbEcvR1VzRWRRMU4rT0wrelZrZDBuT1JRKzBsVU8wTkZacXAyeWFSRWtFRUYxQTdJaWxFY05Pb2Y2VGRTUTA5RURzOW1SSFhxWUlqbjVuVkpyVWN3cG1GaGVsYU5Wd2VyaUYzUkdLb1hneER4L0JwNDdYc3NXRVd3VGFwOGNJU1hjamFaTE5Zc2J0VDg5TXAxR2xpMDFkNHM5eVBvbExXUmJ0NjN1b2lSSkRTMmVRZkFiaEVOVVBYUmdRWk5zMHZ5YVd2UkNHcmxHWjNxQUZFN2RCbHdIbjRxdHBLTXVyRnh0RnNoYXh4Vy9hZ2NocjhwVWNzK0JDOEVid09pOUoxa2lGT2l1ei9qMTI5aWZOQUdmNEdjcnRaQUNuQ0ZyZDN3aVZhSmhHaTA2UGdIT29QaVdGTDlGSCttNU1LZDB6QkdUT0QyQWhYK0VkYllDOWJzRmp1bXlmVVRYd3NIbEM4OEx1SG9jcWRGM3dOOXhLd0VmNElLalQzZXIybjZDUkNIVmNFR0pQVExiQ1JEYmhyNkU0cTRTWTVGeEZRUjVUVlR5MzZJYndIVWUrdVpVV29XNzIwRXYraXRvTUZrSVZtaTdic2REcmxpSUNQT25xeTRLTUs0K3JNVFhZays0Y0podXR4VlJsM09rWHQzSVdJMEJDeDNnbXh3L05XdjJUSmh2bFc5dFFIbGRoWVRUTVp3Y0cvRXhkOHhUd3FKVjZGWlkxRGFRY09Edy9MSWdLZUt2R2FuQ0NCMFMrakhuc0xjUEdTL2NKRkFhL1NSSWdHdHZhOUV6WW9uYVFNUWt2dDExeDdCdHNKQWU5NW5nVmpUb3A0RHdTM3dENHZrd2dxOTRmODQ0d09YTFRCekwxM2NIbitwaHNFUkpocVJRdWM5SVlWL3RJdjBBb1JRYVU2ZkovNkE4MUNOa29wdHBrV2R1WXd1U0w0QVAxNEVrSUU3eG5ZS0tubW9EUVI1Q3dUbFFEU2Y2UWg0Q3lTVlMrZENtNmZxQURqdmtNOW5vVFkxT2wwbmpxd1Q5R0phaXdSVUxxY1JYSVkxQjlxRXNlbE9ueFdtRFRtdHJKcU9DSmNaY0ZZRW1IcHlOVGx4ZTB5bGdoeXBvbTZLVnJ3c2Nhd0UwVmlvenlkQWtTdzdIZ1Z3b0dQV2pDV0JBZ2ZqZ3Q0bGJuL3lVVUVsWDlVdHd1Mk10aU9QZVdpaHRvNWlPRDJ0VGl3THNBN2ZkZUNNYXdjY1lGZmg1ZXpTUzRpeUdXWCszOU0vY0VWNGhITTU1OFpVenBLN2ZoRDlpRVdYeURFWnNkWi9VeW05bTFseHk4M0VWVGwyRDBXZkhoMUVNR1gwM0tZOGx6YlZ3VWx2SEEzK1hnUkFNTEJ0VXpkODB5aW5KNmJDQWdsRlVMKzhaV0NCLzgrdWpLNEtRWGdGRkJIM05NcUJQeFQ3SzBuYlRLaEdtSWhJc2pMaXFnT2xIb0FLb1dTVkZ4TXVhQjIvamlVcUJmNUdKSFlKWnFZcFYzU2ZOWUlFUkN3QkIxTVBRQ1ZEN2dYY0J6c0tDUFZIdWxKRmE1dW5PejdzSnJOL3dyOC9xK0FhMWw5RGtWdUhOei91TzdreDlpRmlhREk4QlVMQnFJcVBLb1VwN0dNbGR6NWgrd1E5VU11LzIzYy81emNBNDJFRmJLdkhnL2Z6cnp3K0NpUno3NTJzdzd2LzY2MFNZazdBMzFFd0ZSbWUvcXVtY2Fpa3JKdFlSRjJIcDNndXo2NytGMWowaEdpUzlYd0NGZ1J6MlkyaUlieDRGeW0rZVN1RkJFUTJFQ2JmRURNNDdiNHRUM3o3Q3JoaE5uNlA4dDlWM2pWVUZwSmdieWNxQ0c1YkU5TFpCUC9nWUZ5dXVkNTlFU0lzdno4YjF2Z3JLYXd3eFhobTlqSXNhbWoyUUNURVNINGFZbnZlckFqeEV2WjBDbFlNWEl6RWU1UFpSZVhCL1BTRHBwQ29vbUpFQnVRUm9yTlFoaDA0aWdKRnNrQU1YVzNTeXNZcHFxd1NuemJjQmtqSzdIS3FTTkxDcnY4MTR4c2g2dy9SSjJJQ05Hc2hCc3Flc2ZWaVNnamRiejBaS2RMdDJjb21XbjZhRkpUdmFKRWNIaDRDSUZkSHNLcVNWT2g2Y1JFZ05saFYzako5ZFRPcXhYQ1Aza2NDWllRWWcrNjZvbFFSbkludHNrY3hTb3ZmNDRPM3JoWGJoUHVlOHpnOGZYRVJKQXp4UHo4SzIwOFlpc0x6RVROVDRUQmhoTUpVVTBTbnRLbzNWTDR1NkxDblpSdnlFZm1UcmYzT2xiOXlkRjVqdUVrUnkxRWtHU0lkT2pKblZnVEhvZUJQNkF3R1ZBK3NvTDBDOVJ4S3ZWZHNRcXVKSXduSUlTTDFXY1czTzE1M2pQWWZQNnlTMUlpUkdRSXpyVEFpYlVBOXduU0FJWEpVT3c0c2d6S1htZ3VKYWlsSEFKa2tBRnZid2tFeExZNTNEK3dDaDFhclVUQVcwcVVVcUYyWW0xazRNRi9kN3NMenk1RGh0bSttV1ZjM3ZwNndXT2x2aWU2RU10ODc0RmlOQ3Ayb0Y2bzdFNkV2U1lvVm53UnJoNm5XV29sRWRRQVlsSEx6NmlkV0NOdTczVER0eFFsZ3FsYmFKZ2RQMVQyVzVTMFRXRlNLM24xYlZXT08wWVhvMDNCYTBVRWhOTG5iOWo5UW5oUnQrdnZWY1NCSmgzSFVjZ1luUWYzVGZJZHE3eitLNHA4ZzlvclZkMDhaajErYTFVa01FWUVTWVptMWk0OERzdjFHZDF1LzBWNW5NalZITnRpcURENU44ajY4N3duWVhoaHVxbktNY1pWQzVNY3F5U0JVU0pJd3hFM0p6U0g4R0hsbE9OblZLNUgvd2huU0JYYVRQcitOK1o3YnludTlsREZZN3VaemEvZXUyb1NHQ2VDcXA2eXFkZUNYb2pndzNtY2FwSVN3cVZKUlVwVGFubHZJTlJyMDk1VjNkNmVUVENlMi9ER21vSUV4b21BUUpsMmx3ZGZKM2RhTTNoRUtYeU1JWU0va2NTOHlpdlMyY1hvbW9GaU5CNXVPTUovRit3OVRvQU4vcmNZamZEemRuaUhQNklpUVNWRVFPQ3hxaXVDS3l4d1hPMVFqYjF6eGR3bERiUUwxazFUZjZkQjdIQzhrRkdTb0RJaUlMQm5nWnB4cUFkZU42NmVHU1A3TWtEUm9uOXNpY3NpRlQ3cWJ6U0ZuWTduOTZsSlVDa1JFQ3A5OTJvTERLQVZMZy9mbDRjSW1JSXhONWN2ZlJ2REtkWGpvZEx6KzRwSjhGNXFBcEFRQVlFeHRjT0RiMXBnQ0oxNHpPRzlOK1lodzdnMFl0ZGRJMjl6VldlZnB1cEliYmNoSENJbEFpTHFjOVk0QVlDTmd4TENjVUFOSHB6eE1VRVBrOGxrSGc5WC8reGgwUS9lVTRSM1dQQk5KckNOZW1Oc0RSRVFzbzZCKzUrM3dEQWE0VjlXU21JK3ZtTElsUGJnaC9UZllnU2JLWTlJclNUQ0FOZ2VsdFcwVjFzS1BsbWFDRkpDSmRoc3dUZVl3RjBkTDNnMXRjTmJTd1JKQmg3TXdVQnR0Y0JZT3JBOXFlZy9DeGdxcWk2bVRab1E0cmdldzBacVo3ZWVDQWh3bnRlenhnalpobmZNelMwOExSOFJwSEpnZytYYy9iUHdIb25hMFd0REJJUXFMTCtjM25pVFkxeVRRdGRkczN2RCt5SnZRMTFXYWdldkpSRVFVaStKQnlldytvY0pHMXdldUhMR3h5ek8rZFY3eXp3ZTdoK29Fdlp1dGVBZHpVQUVQNEdmYjZCMjdsb1RZUUFsR2RMVWMvVG1RZ1FYWU9NT2F2OXBEQkVRcWt6eVFuTGp0c2hEZ0ovYmRGUGNLQ0tvRjl4RnlmdzE5Vml4Q2JnUzd6K29mYVhSUkJoQVNiTTN0N2FobnRpTXF3RFduVkQ3eDlRUVlaRVF3ajlhYmNhb25XQ3E0WGpoK1p3Zit3SnFmNWhhSWlCVWZjUGFLZXJSWUE5NGNJdkR3OE9vZmFBbFFneHpRcnhRaVlyVi9haTFEdGlFWVJBZWIxUGJ2U1ZDQ3FRZVo3T3J1QWdSUG93TnZZOEp3ejJvN2R3U0lTZkFjRytJZW41Uk8wOGpzSlZ4L3pSVTFxTzJhMHVFMG9UQS9KMnliWldtSGRobE16eWVRbHVvSllJaE9DTGNWKzBoU21tRlRoazI0Z0VFNWtCUjI2MGxnaUhJVFRVUFBnN0cvckVGRG1jVGRzaVZrd2Z2d0VJcGFqdTFSS2dJV0QwVzlSWUlMMkxUdlVyY0F4UERwMUhUaU5vbXRtQnFIendGa1gzSW90T21oZ2tXSjJJVGhvbXU1eCtKUjZEVTQ5OCtGajR5ZlVPRVBjeWNaTlVyUHhzRE9QNFBzQitjSy95M3RzN2ZQb1VlN0UvV0ZjRkJlSGFPalVKWXZVcElOMkREUUJUTndyQ0hlaXpicDBHUDY3cTdLYzJpUDJPWTlNZURXNWdkb2RSbTJPdGNCVDlQZGIyZzB6cCsrMVQrWUxGOXQ5dmJ6eEhoS25VYTlRVjFrWGM3MDZwTTV6K2dXbkZkQ0FROHhlWGhHZ2h6RG5kNnZSZFRqMEg3dE0vWVIrcTh1c0dlc2tTVDl3OTF2WEJXQWtzMzVWNGtEbitsK3QrUGt1b1hzcVN6L3p3TTBhaS9ZNXFlL3dmaFNwMGVHdnoyYkFBQUFBQkpSVTVFcmtKZ2dnPT0iLz4KCTwvZGVmcz4KCTxzdHlsZT4KCTwvc3R5bGU+Cgk8dXNlIGlkPSJCYWNrZ3JvdW5kIiBocmVmPSIjaW1nMSIgeD0iNiIgeT0iMCIvPgo8L3N2Zz4=";
 
                 // 给刚才添加的img添加事件
                 for(let imgObj of $("#matchItems").find('img')) {
@@ -3159,7 +3189,7 @@
                             currentErrorImg.removeAttr(standbyFaviconAttr)
                         }else {
                             // 如果备用favicon直接使用加载失败图标base64
-                            currentErrorImg.attr("src",loadErrorFlagIcon)
+                            currentErrorImg.attr("src",loadErrorTagIcon)
                         }
                     }
                 }
@@ -3493,20 +3523,20 @@
         clearCache();
     });
 
-    function giveFlagsStatus(flagsOfData,userUnfollowList) {
-        // 赋予flags一个是否选中状态
+    function giveTagsStatus(tagsOfData,userUnfollowList) {
+        // 赋予tags一个是否选中状态
         // 将 userUnfollowList 转为以key为userUnfollowList的item.name值是Item的方便检索
         let userUnfollowMap = userUnfollowList.reduce(function(result, item) {
             result[item] = '';
             return result;
         }, {});
-        flagsOfData.forEach(item=>{
+        tagsOfData.forEach(item=>{
             if(userUnfollowMap[item.name] != null ) {
-                // 默认都是选中状态，如果item在userUnfollowList上将此flag状态改为未选中状态
+                // 默认都是选中状态，如果item在userUnfollowList上将此tag状态改为未选中状态
                 item.status = 0;
             }
         })
-        return flagsOfData;
+        return tagsOfData;
     }
     function showConfigView() {
         // 剃除已转关注的，添加新关注的
@@ -3523,15 +3553,15 @@
         // 用户维护的取消关注标签列表
         let userUnfollowList = cache.get(registry.searchData.USER_UNFOLLOW_LIST_CACHE_KEY)?? registry.searchData.USER_DEFAULT_UNFOLLOW;
         // 当前数据所有的标签
-        let flagsOfData = cache.get(registry.searchData.DATA_ITEM_FLAGS_CACHE_KEY);
-        // 使用 userUnfollowList 给 flagsOfData中的标签一个是否选中状态，在userUnfollowList中不选中，不在选中，添加一个属性到flagsOfData用boolean表达
-        flagsOfData = giveFlagsStatus(flagsOfData,userUnfollowList);
+        let tagsOfData = cache.get(registry.searchData.DATA_ITEM_TAGS_CACHE_KEY);
+        // 使用 userUnfollowList 给 tagsOfData中的标签一个是否选中状态，在userUnfollowList中不选中，不在选中，添加一个属性到tagsOfData用boolean表达
+        tagsOfData = giveTagsStatus(tagsOfData,userUnfollowList);
         // 生成多选框html
-        let flagsCheckboxHtml = "";
-        flagsOfData.forEach(item=>{
-            flagsCheckboxHtml += `
+        let tagsCheckboxHtml = "";
+        tagsOfData.forEach(item=>{
+            tagsCheckboxHtml += `
                <div>
-                   <input type="checkbox" id="${item.name}" name="_flagsCheckBox" value="${item.name}" ${item.status==1?'checked':''} >
+                   <input type="checkbox" id="${item.name}" name="_tagsCheckBox" value="${item.name}" ${item.status==1?'checked':''} >
                    <label for="${item.name}">${item.name} （${item.count}）</label>
                </div>
             `
@@ -3551,100 +3581,213 @@
             box-sizing: border-box;
             border-radius: 14px;
             text-align: left;
-        }
+            button {
+                cursor: pointer;
+            }
 
-        #topController_close {
-            font-sise: 15px;
-        }
-        .control_title {
-            margin: 10px 0px 5px;
-            font-size: 17px;
-            color: black;
-        }
-        ._topController {
-            width: 100%;
-            position: absolute;
-            top: 0px;
-            right: 0px;
-            text-align: right;
-            padding: 15px 15px 0px;
-            box-sizing: border-box;
-        }
+            ._topController {
+                width: 100%;
+                position: absolute;
+                top: 0px;
+                right: 0px;
+                text-align: right;
+                padding: 15px 15px 0px;
+                box-sizing: border-box;
+                * {
+                    cursor: pointer;
+                }
+                #topController_close {
+                   font-sise: 15px;
+                   color: #e8221e;
+                }
+            }
+            .page {
+              .control_title {
+                   margin: 10px 0px 5px;
+                   font-size: 17px;
+                   color: black;
+               }
+            }
+            .home {
+                .submitable {
+                   color: #3CB371;
+                }
+                .tagsCheckBoxDiv > div {
+                    width: 32%;
+                    display: inline-block;
+                    margin: 0px;
+                    padding: 0px;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                }
+                #all_subscribe {
+                    width: 100%;
+                    height: 150px;
+                    box-sizing: border-box;
+                    border: 4px solid #f5f5f5;
+                }
+                #subscribe_save {
+                    margin-top: 20px;
+                    border: none;
+                    border-radius: 3px;
+                    padding: 4px 17px;
+                    cursor: pointer;
+                    box-sizing: border-box;
+                    background: #6161bb;
+                    color: #fff;
+                }
+                .view-base-button {
+                   background: #fff;
+                   border: none;
+                   font-size: 15px;
+                   padding: 1px 10px;
+                   cursor: pointer;
+                   margin: 2px;
+                   color: black;
+                }
+                ._topController span {
+                   color: #3CB371;
+                }
+                .home label {
+                  font-size: 13px;
+                }
+            }
+            .tis-hub {
+                .logo-search {
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    img {
+                        display: block;
+                        width: 40px;
+                        height: 40px;
+                     }
+                     .keyword {
+                         display: flex;
+                         font-size: 12px;
+                         width: 70%;
+                         margin-top: 5px;
+                         input {
+                             border: none;
+                             padding: 0 6px;
+                             min-width: 100px;
+                             line-height: 25px;
+                             height: 25px;
+                             flex-grow: 1;
+                         }
+                         button {
+                             padding: 0 12px;
+                             border: none;
+                             background: #f0f0f0;
+                             line-height: 25px;
+                             height: 25px;
+                         }
+                      }
+                }
+                .search-type {
+                    display: flex;
+                    padding: 10px 0;
+                    label {
+                        display: flex;
+                        align-items: center;
+                        margin-right: 20px;
+                        font-size: 14px;
+                        input {
+                            padding: 0;
+                            margin: 0 3px 0 0;
+                        }
+                    }
+                }
+                .result-list {
+                   min-height: 300px;
+                   padding-top: 15px;
+                   .hub-tis {
+                      display: flex;
+                      justify-content: space-between;
+                      margin-bottom: 12px;
+                      align-items: center;
+                      button {
+                          font-size: 10px;
+                          line-height: 22px;
+                          height: 22px;
+                          padding: 0 15px;
+                          border-radius: 3px;
+                          border: none;
+                      }
+                      .tis-info {
+                         display: flex;
+                         flex-direction: column;
+                         .title {
+                             font-size: 14px;
+                             font-weight: bold;
+                             color: rgb(103, 0, 0);
+                         }
+                         .describe {
+                             font-size: 12px;
+                             font-weight: 400;
+                             display: block;
+                             font-size: smaller;
+                             margin: 0.5em 0px;
+                             color: #333333;
+                         }
 
-        ._topController>* {
-            cursor: pointer;
+                      }
+                   }
+                }
+            }
         }
-
-        .flagsCheckBoxDiv > div {
-            width: 32%;
-            display: inline-block;
-            margin: 0px;
-            padding: 0px;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-
-        #all_subscribe {
-            width: 100%;
-            height: 150px;
-            box-sizing: border-box;
-            border: 4px solid #f5f5f5;
-        }
-
-        #subscribe_save {
-            margin-top: 20px;
-            border: none;
-            border-radius: 3px;
-            padding: 4px 17px;
-            cursor: pointer;
-            box-sizing: border-box;
-            background: #6161bb;
-            color: #fff;
-        }
-        .view-base-button {
-           background: #fff;
-           border: none;
-           font-size: 15px;
-           padding: 1px 10px;
-           cursor: pointer;
-           margin: 2px;
-           color: black;
-        }
-        #my-search-view span {
-           color: #3CB371;
-        }
-        #my-search-view label {
-          font-size: 13px;
-        }
-
     `,`
-        <div id="my-search-view">
-            <div class="_topController">
-              <span id="topController_close">X</span>
+    <div id="my-search-view">
+        <div class="_topController">
+            <span id="topController_close">X</span>
+        </div>
+        <div class="page home">
+            <div>
+                <p class="control_title">订阅总览：</p>
+                <textarea id="all_subscribe"></textarea>
             </div>
             <div>
-               <p class="control_title">订阅总览：</p>
-               <textarea id="all_subscribe" ></textarea>
+                <p class="control_title">公共仓库：</p>
+                <button id="pushTis" class="view-base-button">提交我的订阅到TisHub(<span class="submitable"> - </span>)</button>
+                <button id="openTisHub" class="view-base-button">Tis订阅市场</button>
+                <button id="clearToken" class="view-base-button" style="display:none;">清理Token (存在)</button>
             </div>
             <div>
-               <p class="control_title">公共仓库：</p>
-               <div>
-                  <input type="checkbox" id="useCommonRepo" >
-                  <label for="useCommonRepo">使用已验证的TisHub公共仓库订阅</label>
-               </div>
-               <button id="pushTis" class="view-base-button">共享我的订阅到TisHub(<span> - </span>)</button>
-               <button id="openTisHub" class="view-base-button">打开TisHub</button>
-               <button id="clearToken" class="view-base-button" style="display:none;">清理Token (存在)</button>
-            </div>
-            <div>
-               <p class="control_title">关注标签：</p>
-               <div class="flagsCheckBoxDiv">
-                 ${flagsCheckboxHtml}
-               </div>
+                <p class="control_title">关注标签：</p>
+                <div class="tagsCheckBoxDiv">
+                    ${tagsCheckboxHtml}
+                </div>
             </div>
             <button id="subscribe_save">保存并应用</button>
         </div>
+        <div class="page tis-hub">
+            <p class="control_title">订阅市场</p>
+            <div class="logo-search">
+                <a href="https://github.com/My-Search/TisHub" target="_blank">
+                    <img src="https://cdn.jsdelivr.net/gh/My-Search/TisHub/favicon.ico" title="TisHub是一个GitHub仓库，订阅以Issues的方式存在！" />
+                </a>
+                <div class="keyword">
+                    <input name="keyword" placeholder="请输入搜索关键字..." />
+                    <button id="search-tishub">搜索</button>
+                </div>
+            </div>
+            <div class="search-type">
+                <label>
+                    <input type="radio" name="search-type" value="installed" checked>
+                    已安装
+                </label><br>
+                <label>
+                    <input type="radio" name="search-type" value="market">
+                    市场订阅
+                </label>
+            </div>
+            <div class="result-list">
+                <div class="list-rol">
+                </div>
+            </div>
+        </div>
+    </div>
 
     `,function (selector,remove) {
             let subscribe_text = selector("#all_subscribe");
@@ -3655,15 +3798,18 @@
             let pushTis = selector("#pushTis");
             let commitableTisList = null;
             let clearToken = selector("#clearToken");
-            let useCommonRepo = selector("#useCommonRepo")
+            let mySearchView = selector("#my-search-view");
+            let currentPage = setPage(); // 默认显示的是home页
 
+            // 刷新页
+            function setPage(page = "home") {
+                $(mySearchView).find('.page').hide().filter(`.${page}`).show();
+            }
+            setPage("home");
             // 刷新视图状态
             async function refreshViewState() {
                 // 更新token状态
                 $(clearToken).css({"display":GithubAPI.getToken() == null?"none":"inline-block"})
-                // 更新是否使用TisHub状态
-                let isUseTisHubTis = cache.get(registry.searchData.USE_TISHUB_STATE_CACHE_KEY)??false;
-                useCommonRepo.checked = isUseTisHubTis;
                 // 更新可提交数
                 let tisList = await TisHub.getTisHubAllTis();
                 if(tisList != null && tisList.length != 0) {
@@ -3686,7 +3832,7 @@
             subscribe_save.onclick=function() {
                 // 保存用户选择的关注标签（维护数据）
                 // 获取所有多选框元素
-                var checkboxes = selector(".flagsCheckBoxDiv input",true);
+                var checkboxes = selector(".tagsCheckBoxDiv input",true);
                 // 初始化已选中和未选中的数组
                 var userFollowList = [];
                 var newUserUnfollowList = [];
@@ -3702,7 +3848,6 @@
                 // 剃除已转关注的，添加新关注的
                 newUserUnfollowList = reshapeUnfollowList( userUnfollowList,userFollowList,newUserUnfollowList);
                 cache.set(registry.searchData.USER_UNFOLLOW_LIST_CACHE_KEY,newUserUnfollowList);
-                cache.set(registry.searchData.USE_TISHUB_STATE_CACHE_KEY,useCommonRepo.checked )
 
                 // 保存到对象
                 let allSubscribe = subscribe_text.value;
@@ -3716,7 +3861,8 @@
             }
             // 打开TitHub
             openTisHub.onclick = function() {
-                window.open(tisHubLink, "_blank");
+                // window.open(tisHubLink, "_blank");
+                setPage("tis-hub");
             }
             // push到TisHub公共仓库中
             pushTis.onclick =async function () {
@@ -3746,7 +3892,7 @@
                     "body": body
                 }).then(response=>{
                     refreshViewState();
-                    alert("提交成功！感谢您的参与，脚本因你而更加精彩。")
+                    alert("提交成功(issues)！感谢您的参与，脚本因你而更加精彩。")
                 }).catch(error=>alert("提交失败~"))
             }
             // 清理token
@@ -3756,6 +3902,86 @@
             };
             // 关闭
             $(topController_close).click(configViewClose)
+
+            // 点击搜索tis-hub
+            let installedList = cache.get(registry.searchData.USE_INSTALL_TISHUB_CACHE_KEY) || []; // [ {name: "官方订阅",describe: "这是官方订阅...", body: "<tis::http... />",status: ""} ]  status: disable enable installable
+            const searchButton = $("#search-tishub").click(async function() {
+                const keyword = selector(".tis-hub .keyword input").value;
+                // 搜索类型（installed | market）
+                const searchType = $('.search-type input[name="search-type"]:checked').val();
+                let resultTisList = installedList.filter(item => keyword === "" || item.name.includes(keyword));
+                if(searchType === "market") {
+                     let marketResult = await TisHub.getClosedIssuesTis({keyword})
+                     marketResult = marketResult.map(hubTisInfo => {
+                         return {
+                             name: hubTisInfo.title,
+                             describe: hubTisInfo.describe,
+                             body: hubTisInfo.tisList.join('\n') || '',
+                             state: "installable"
+                         }
+                     })
+                    const installedMap = resultTisList.reduce((map, item) => {
+                         map[item.name] = item;
+                         return map;
+                     }, {});
+                    // 看本地是否已安装，如果已安装state就取已安装的项state
+                    (resultTisList = marketResult).forEach(hubTis =>{
+                        if(installedMap[hubTis.name]) hubTis.state = installedMap[hubTis.name].state;
+                    });
+                }
+                // 列表渲染
+                const resultElement = $(".tis-hub .result-list > .list-rol");
+                resultElement.html('')
+                // 转状态名
+                function stateAsName(state) {
+                    return (state === "disable" && "移除（未启用）") || (state === "enable" && "移除") || "安装";
+                }
+                for(let tis of resultTisList) {
+                    const tisMetaInfo = new PageTextHandleChains(tis.body).parseAllDesignatedSingTags("tis")[0];
+                    if(tisMetaInfo == null) continue;
+                    resultElement.append(`
+                       <div class="hub-tis">
+                           <div class="tis-info">
+                               <a class="title" href="${tisMetaInfo.tabValue}" target="_blank">${tis.name}</a>
+                               <span class="describe">${tisMetaInfo.describe || '订阅没有描述信息，请确认订阅安全或相任后再选择安装！'}</span>
+                           </div>
+                           <button class="tis-button" tis-name="${tis.name}">${ stateAsName(tis.state) }</button>
+                       </div>
+                    `)
+                }
+                // 当点击tis-button按钮时
+                $(".hub-tis .tis-button").click(function() {
+                    // 使用 $(this) 获取当前被点击的元素
+                    const button = $(this);
+                    const tisName = button.attr("tis-name");
+                    let tis = installedList.find(item=>item.name === tisName);
+                    if(tis != null) {
+                        // 移除
+                        installedList = installedList.filter(item => item.name !== tisName);
+                        tis.state = "installable";
+                    }else {
+                        // 安装
+                        const hubTis = resultTisList.find(item=>item.name === tisName);
+                        hubTis.state = "enable";
+                        installedList.unshift(tis = hubTis);
+                    }
+                    // 更新状态
+                    button.html(stateAsName(tis.state));
+                    // 保存
+                    console.log("保存：",installedList)
+                    cache.set(registry.searchData.USE_INSTALL_TISHUB_CACHE_KEY,installedList);
+                });
+            }).click();
+
+            // 单选框值改变时，搜索
+            const radioButtons = document.querySelectorAll('input[name="search-type"]');
+            radioButtons.forEach(radio => {
+                radio.addEventListener('change', function() {
+                    if (this.checked) {
+                        searchButton.click();
+                    }
+                });
+            });
 
         })
     }
