@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         我的搜索
 // @namespace    http://tampermonkey.net/
-// @version      6.8.2
+// @version      6.8.4
 // @description  打造订阅式搜索，让我的搜索，只搜精品！
 // @license MIT
 // @author       zhuangjie
@@ -92,10 +92,19 @@
         originalLog.apply(console, args);
     }
     // markdown转html 转换器 【1】
+    // 更多配置项：https://github.com/showdownjs/showdown
     const converter = new showdown.Converter({
+        // 将换行符解析为<br>
         simpleLineBreaks:true,
+        // 新窗口打开链接
         openLinksInNewWindow: true,
-        metadata:true
+        metadata:true,
+        // 不允许下划线变斜体
+        literalMidWordUnderscores: true,
+        // 识别md表格
+        tables: true,
+        // www.baidu.com 会识别为链接
+        simplifiedAutoLink: true
     });
 
     // 提取URL根域名
@@ -504,7 +513,7 @@
     let USER_GITHUB_TOKEN_CACHE_KEY = "USER_GITHUB_TOKEN_CACHE_KEY";
     let GithubAPI = {
         token: cache.get(USER_GITHUB_TOKEN_CACHE_KEY),
-        defaultToken: atob('Z2hwX3VKWktVZGtmWmFWY1pnNHJ2TGw4V1M5UjZUcGtocTQwem1hcg=='), // 该token没有什么权限，只用于访问不受限  btoa - atob
+        defaultToken: atob('Z2hwX0dVMGZYSGxqZFpVNmZCNzdnSTcyRUhRdEVXczlyMDBwYUFHeg=='), // 该token没有什么权限，只用于访问不受限  btoa - atob
         setToken(token) {
             if(token != null) this.token = token;
             if(this.token == null) {
