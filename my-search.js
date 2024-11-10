@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         我的搜索
 // @namespace    http://tampermonkey.net/
-// @version      6.8.4
+// @version      6.9.0
 // @description  打造订阅式搜索，让我的搜索，只搜精品！
 // @license MIT
 // @author       zhuangjie
@@ -683,15 +683,18 @@
                     for (let block of cssBlocks) {
                         let blockLines = block.split('\n');
                         let blockOutput = '';
+
                         for (let line of blockLines) {
-                            if (line.trim().endsWith('{')) { // 如果当前行是一个样式选择器行
-                                blockOutput += `${prefix} ${line}`; // 在样式选择器前加上指定的前缀
+                            // 判断行末是否以 `{` 或 `,` 结尾且行首不能有空格
+                            if ((line.trim().endsWith('{') || line.trim().endsWith(','))
+                                && !line.startsWith(' ') && !line.trim().startsWith('@')) {
+                                blockOutput += `${prefix} ${line.trim()}`; // 在当前行前加上前缀
                             } else {
                                 blockOutput += line; // 其他行保持原样
                             }
-
                             blockOutput += '\n'; // 添加换行符，用于分隔CSS内容的各行
                         }
+
                         if (blockOutput.trim() !== '') {
                             outputCSS += blockOutput;
                             outputCSS += '}\n'; // 只有在当前块不为空时添加闭合大括号
@@ -700,10 +703,10 @@
                     return outputCSS;
                 },
                 show(html,css = "",js = "") {
-                    html =
-                        `<style>${this.cssFillPrefix(css,`#${registry.view.viewDocument.id} #${registry.view.element.textView.attr('id')}`)}</style>`
-                        +html
-                        +`<script>${js}</script>`
+                    html = `<style type='text/css'>${this.cssFillPrefix(css,`#${registry.view.viewDocument.id} #${registry.view.element.textView.attr('id')}`)}</style>`
+                        + html
+                        // 这里在函数内执行js是为了在同一页面未刷新下可多次执行该js不执行，也就是对变量/函数等进行隔离
+                        +`<script>(()=>{ ${js} })()</script>`
                     let my_search_box = $(registry.view.viewDocument);
                     // 视图还没有初始化
                     if(my_search_box == null) return;
@@ -715,7 +718,6 @@
                         // 这里没有错，发警告不用理
                         hljs.highlightElement(el);
                     });
-
                     matchResult.css({
                         "display": "none"
                     })
@@ -2181,7 +2183,8 @@
     function CallBeforeParse() {
         this.obj = {
             "`":"<反引号>",
-            "\\":"<转义>"
+            "\\":"<转义>",
+            "$": "<美元符>"
         }
         this.escape = function(text) {
             let obj = this.obj;
