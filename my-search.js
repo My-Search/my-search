@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         我的搜索
 // @namespace    http://tampermonkey.net/
-// @version      6.9.0
+// @version      6.9.2
 // @description  打造订阅式搜索，让我的搜索，只搜精品！
 // @license MIT
 // @author       zhuangjie
@@ -513,7 +513,7 @@
     let USER_GITHUB_TOKEN_CACHE_KEY = "USER_GITHUB_TOKEN_CACHE_KEY";
     let GithubAPI = {
         token: cache.get(USER_GITHUB_TOKEN_CACHE_KEY),
-        defaultToken: atob('Z2hwX0dVMGZYSGxqZFpVNmZCNzdnSTcyRUhRdEVXczlyMDBwYUFHeg=='), // 该token没有什么权限，只用于访问不受限  btoa - atob
+        defaultToken: '',
         setToken(token) {
             if(token != null) this.token = token;
             if(this.token == null) {
@@ -534,7 +534,6 @@
             return this.token;
         },
         baseRequest(type,url,{query,body}={},header = {}) {
-            if(this.token != null && header.Authorization == null) header.Authorization = "Bearer "+this.token;
             query = {...query}
             return request(type, url, { query,body },header);
         },
@@ -542,8 +541,9 @@
             return this.baseRequest("GET","https://api.github.com/user")
         },
         commitIssues(body) {
-            return this.baseRequest("POST","https://api.github.com/repos/My-Search/TisHub/issues",{body})
+            return this.baseRequest("POST","https://api.github.com/repos/My-Search/TisHub/issues",{body},{Authorization:`Bearer ${this.token}`})
         },
+        // get issues不要加 Authorization 头，可能会出现401
         getTisForIssues({keyword,state} = {}) {
             let query = null;
             if(state != null) query = {state};
@@ -552,10 +552,10 @@
             return keyword
                 ? new Promise((resolve,reject)=>{
                      // API兼容处理
-                     this.baseRequest("GET",`https://api.github.com/search/issues?q=repo:My-Search/TisHub+state:${state}+in:title+${keyword}`,{},{Authorization:"Bearer "+token})
+                     this.baseRequest("GET",`https://api.github.com/search/issues?q=repo:My-Search/TisHub+state:${state}+in:title+${keyword}`,{},{})
                      .then(response=>resolve(response.items)).catch(error=>resolve([]));
                   })
-                : this.baseRequest("GET","https://api.github.com/repos/My-Search/TisHub/issues",{query},{Authorization:"Bearer "+token})
+                : this.baseRequest("GET","https://api.github.com/repos/My-Search/TisHub/issues",{query},{})
         }
     }
 
@@ -3982,6 +3982,8 @@
                     // 保存
                     console.log("保存：",installedList)
                     cache.set(registry.searchData.USE_INSTALL_TISHUB_CACHE_KEY,installedList);
+                    // 清理缓存
+                    clearCache()
                 });
             }).click();
 
