@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         我的搜索
 // @namespace    http://tampermonkey.net/
-// @version      6.9.2
+// @version      6.9.5
 // @description  打造订阅式搜索，让我的搜索，只搜精品！
 // @license MIT
 // @author       zhuangjie
@@ -310,6 +310,10 @@
         }
 
         return result;
+    }
+    // ref引用变量
+    function ref(initValue = null) {
+        return {value: initValue}
     }
     // ==偏业务工具函数==
     // 使用责任链模式——对pageText进行操作的工具
@@ -674,7 +678,7 @@
             ],
             menuActive: false,
             // 视图延时隐藏时间，避免点击右边logo，还没显示就隐藏了
-            delayedHideTime: 150,
+            delayedHideTime: 100,
             initialized: false,
             textView: {
                 cssFillPrefix(css = "", prefix = "") {
@@ -703,8 +707,9 @@
                     return outputCSS;
                 },
                 show(html,css = "",js = "") {
-                    html = `<style type='text/css'>${this.cssFillPrefix(css,`#${registry.view.viewDocument.id} #${registry.view.element.textView.attr('id')}`)}</style>`
-                        + html
+                    const MS_BODY_ID = "ms-page-body";
+                    html = `<style type='text/css'>${this.cssFillPrefix(css,`#${registry.view.viewDocument.id} #${registry.view.element.textView.attr('id')} #${MS_BODY_ID}` )}</style>`
+                        + `<div id="${MS_BODY_ID}">${html}</div>`
                         // 这里在函数内执行js是为了在同一页面未刷新下可多次执行该js不执行，也就是对变量/函数等进行隔离
                         +`<script>(()=>{ ${js} })()</script>`
                     let my_search_box = $(registry.view.viewDocument);
@@ -728,12 +733,15 @@
             },
             // 搜索框logo控制
             logo: {
-                originalLogo: null,
+                // logo src值
+                originalLogoImgSrc: null,
+                // logo按钮是否按下状态
+                isLogoButtonPressedRef: ref(false),
                 getLogoImg: function () {
                     let viewDocument = registry.view.viewDocument;
                     if(viewDocument == null ) return null;
                     let currentLogoImg = $(viewDocument).find("#logoButton img");
-                    if(this.originalLogo == null) this.originalLogo = currentLogoImg.attr("src");
+                    if(this.originalLogoImgSrc == null) this.originalLogoImgSrc = currentLogoImg.attr("src");
                     return currentLogoImg;
                 },
                 change: function (imgResource) {
@@ -744,7 +752,7 @@
                 reset: function() {
                     let logoImg = this.getLogoImg();
                     if (logoImg == null ) return;
-                    logoImg.attr("src",this.originalLogo)
+                    logoImg.attr("src",this.originalLogoImgSrc)
                 }
             },
             modeEnum: {
@@ -968,13 +976,7 @@
                 return inputDesc;
 
             },
-            // 可填充的搜索keyword (如果输入框是"baidu : 如何..." => ["baidu","如何"] 以)
-            keywordForFill: [],
-            searchBoundary: " : ",
-            parseRawKeywordForFill(rawKeyword = "",isIgnoreBlank = false) {
-                 return rawKeyword.split(this.searchBoundary).map(item=>item.trim()).filter(item=>(!isIgnoreBlank || item.length > 0));
-            },
-            // 存储着text转pinyin的历史  registry.searchData.isSearchPro
+            // 存储着text转pinyin的历史  registry.searchData.subSearch.isSubSearchMode
             TEXT_PINYIN_KEY: "TEXT_PINYIN_MAP",
             // 默认数据不应初始化，不然太占内存了，只用调用了toPinyin才会初始化  getGlobalTextPinyinMap()
             getGlobalTextPinyinMap: (function() {
@@ -984,9 +986,59 @@
                     return (textPinyinMap = cache.jGet("TEXT_PINYIN_MAP")??{});
                 }
             })(),
-            isSearchPro: function() {
-                let keyword = registry.view.element.input.val()
-                return keyword.includes(this.searchBoundary);
+            subSearch: {
+                searchBoundary: " : ",
+                isEnteredSubSearchMode: false, // 是否已经进入子搜索模式
+                // 不传参数是看当前是否为子搜索模式 , [0] 是最近一个
+                isSubSearchMode(by = undefined) {
+                    let byKeyword = typeof(by) === 'string'
+                        ? by // by就是keyword
+                        : (by === undefined ? registry.searchData.searchHistory.currentKeyword() : registry.searchData.searchHistory.history[by]); // by是index
+                    return byKeyword && byKeyword.includes(this.searchBoundary);
+                },
+                // 获取父级（根keyword）
+                getParentKeyword(keyword) {
+                    // 如果没有传入使用搜索框的value
+                    if(! keyword) keyword = registry.searchData.searchHistory.currentKeyword();
+                    return (keyword || "").split(this.searchBoundary)[0].trim()
+                },
+                // 获取子搜索keyword
+                getSubSearchKeyword(keyword) {
+                    // 如果没有传入使用搜索框的value
+                    if(! keyword) keyword = registry.searchData.searchHistory.currentKeyword();
+                    let _arr = (keyword || "").split(this.searchBoundary);
+                    if( _arr.length < 2 ) return undefined;
+                    return _arr[1].trim();
+                }
+
+            },
+            searchHistory: {
+                history: [], // 新,旧...
+                add(keyword) {
+                    if(! keyword) return;
+                    // 维护isEnteredSubSearchMode变量状态（进入与退出）
+                    const searchBoundary = registry.searchData.subSearch.searchBoundary
+                    if(keyword !== searchBoundary && keyword.endsWith(searchBoundary)) {
+                        registry.searchData.subSearch.isEnteredSubSearchMode = true;
+                        console.logout("进入了子搜索")
+                    }else if(registry.searchData.subSearch.isEnteredSubSearchMode && !keyword.includes(searchBoundary)){
+                        registry.searchData.subSearch.isEnteredSubSearchMode = false;
+                        console.logout("退出了子搜索")
+                    }
+                    // 加入到历史
+                    const _history = this.history;
+                    _history.unshift(keyword);
+                    _history.slice(10); // 不能超过10个元素
+                },
+                currentKeyword() {
+                    return registry.view.element.input.val()
+                },
+                // 当前keyword "123 : 哈哈" 与 最近"123 : 嘻嘻" 则返回true,即看左边
+                seeCurrentEqualsLastByRealKeyword() {
+                    // 上一次真实搜索keyword === 当前真实搜索keyword
+                    return registry.searchData.subSearch.getParentKeyword(this.history[0]) === registry.searchData.subSearch.getParentKeyword(this.currentKeyword());
+                }
+
             },
             searchProTag: "[可搜索]"
         },
@@ -996,12 +1048,12 @@
             tryRunTextViewHandler() {
                 const input = registry.view.element.input;
                 const rawKeyword = input.val();
-                const keywordForFill = registry.searchData.parseRawKeywordForFill(input.val());
                 if(registry.view.seeNowMode() === registry.view.modeEnum.SHOW_ITEM_DETAIL) {
                     // 当msg不为空发送msg消息到脚本
-                    if( keywordForFill.length > 1) {
+                    const subKeyword = registry.searchData.subSearch.getSubSearchKeyword()
+                    if( subKeyword !== undefined) {
                         // 通知脚本回车send事件
-                        const msg = keywordForFill[1];
+                        const msg = subKeyword;
                         registry.script.script_env_var?.event.sendListener.forEach(listener=>listener(msg))
                         // 清理掉send msg内容
                         input.val(rawKeyword.replace(msg,""))
@@ -2668,7 +2720,7 @@
                     </ol>
                 </div>
                 <!--加“markdown-body”是使用了github-markdown.css 样式！加在markdown文档父容器中-->
-                <div id="${textViewDocumentId}" class="markdown-body">
+                <div id="${textViewDocumentId}" class="markdown-body" style="min-height:auto !important;">
 
                 </div>
              </div>
@@ -2694,7 +2746,7 @@
                 textView
             }
             // 菜单函数(点击输入框右边按钮时会调用)
-            logoButton.click( function () {
+            function onClickLogo() {
                 registry.view.menuActive = true;
                 // alert("小彩蛋：可以搜索一下“系统项”了解脚本基本使用哦~");
                 // 调用手动触发搜索函数,如果已经搜索过，搜索空串（清理）
@@ -2703,7 +2755,27 @@
                 setTimeout(function(){ registry.view.menuActive = false;},registry.view.delayedHideTime+100);
                 // 重新聚焦搜索框
                 registry.view.element.input.focus()
-            })
+            }
+            const isLogoButtonPressedRef = registry.view.logo.isLogoButtonPressedRef;
+            // 按下按钮时设置变量为 true
+            logoButton.on('mousedown', function() {
+                isLogoButtonPressedRef.value = true;
+            });
+
+            // 按钮弹起时设置变量为 false，并让输入框聚焦
+            logoButton.on('mouseup', function() {
+                isLogoButtonPressedRef.value = false;
+                onClickLogo() // 触发logo点击事件
+                searchInputDocument.focus(); // 输入框聚焦
+            });
+
+            // 防止鼠标拖出按钮后弹起无法触发 mouseup
+            logoButton.on('mouseleave', function() {
+                if (isLogoButtonPressedRef.value) {
+                    isLogoButtonPressedRef.value = false;
+                    searchInputDocument.focus(); // 输入框聚焦
+                }
+            });
             /*// 图片放大/还原
             textView.on("click","img",function(e) {
                 let target = e.target;
@@ -2723,68 +2795,66 @@
             // 设置视图已经初始化
             registry.view.initialized = true;
 
-
             // 在搜索的结果集中上下选择移动然后回车（相当点击）
             searchInputDocument.keyup(function(event){
                 let keyword = $(event.target).val().trim();
                 // 当不为空时，放到全局keyword中
-                if(keyword != "" && keyword != null) {
+                if(keyword) {
                     registry.searchData.keyword = event.target.value;
                 }
                 // 处理keyword中的":"字符
                 if(keyword.endsWith("::") || keyword.endsWith("：：")) {
-                    keyword = keyword.replace(/::|：：/,registry.searchData.searchBoundary).replace(/\s+/," ");
+                    keyword = keyword.replace(/::|：：/,registry.searchData.subSearch.searchBoundary).replace(/\s+/," ");
                     // 每次要形成一个" : "的时候去掉重复的" : : " -> " : "
-                    keyword = keyword.replace(/((\s{1,2}:)+ )/,registry.searchData.searchBoundary);
+                    keyword = keyword.replace(/((\s{1,2}:)+ )/,registry.searchData.subSearch.searchBoundary);
                     $(event.target).val(keyword.toUpperCase());
                 }
             });
-            // shift+tab处理事件（取消搜索pro模式）
-            document.addEventListener('keydown', function(event) {
-                if (event.shiftKey && event.keyCode === 9 ) {
-                    if(registry.searchData.isSearchPro()) {
-                        // 在这里编写按下shift+tab键时要执行的代码
-                        let input = event.target;
-                        input.value = input.value.split(registry.searchData.searchBoundary)[0]
-                        event.target.value = event.target.value.toLowerCase();
-                        // 手动触发输入事件
-                        input.dispatchEvent(new Event("input", { bubbles: true }));
-                    }
-                    event.preventDefault();
-                }
-            });
-            // 这个监听用来处理其它键（非上下选择）的。
+            // searchInputDocument.keydown：这个监听用来处理其它键（非上下选择）的。
             searchInputDocument.keydown(function (event){
+                // 阻止键盘事件冒泡 | 阻止输入框外监听到按钮，应只作用于该输入框
+                event.stopPropagation();
                 // 判断一个输入框的东西，如果如果按下的是删除，判断一下是不是"搜索模式"
                 let keyword = $(event.target).val();
                 let input = event.target;
-                if(event.key == "Backspace" ) {
-                    // 按的是删除键
-                    if(keyword.endsWith(registry.searchData.searchBoundary)) {
+                if(event.key == "Backspace" ) { // 按的是删除键-块删除
+                    if(keyword.endsWith(registry.searchData.subSearch.searchBoundary)) {
                         // 取消默认事件-删除
                         event.preventDefault();
                         return;
                     }else if(/^\s*[\[<][^\[\]<>]*[\]>]\s*$/.test( keyword )) {
                         // 如果输入框只有[xxx]或<xxx>那就清空掉输入框
                         searchInputDocument.val('')
-                        // 触发搜索
+                        // keyword重置为空字符后触发搜索
                         registry.searchData.triggerSearchHandle();
                         event.preventDefault();
                         return;
                     }
                 }else if ( ! event.shiftKey && event.keyCode === 9 ) { // Tab键
-                    if(! registry.searchData.isSearchPro()) {
+                    if(! registry.searchData.subSearch.isSubSearchMode()) {
                         // 转大写
                         event.target.value = event.target.value.toUpperCase()
                         // 添加搜索pro模式分隔符
-                        event.target.value += registry.searchData.searchBoundary
+                        event.target.value += registry.searchData.subSearch.searchBoundary
                         // 阻止默认行为，避免跳转到下一个元素
                         registry.searchData.triggerSearchHandle();
                     }
                     event.preventDefault();
+                }else if (event.shiftKey && event.keyCode === 9 ) { // 按下shift + tab键时取消搜索模式
+                    if(registry.searchData.subSearch.isSubSearchMode()) {
+                        // 在这里编写按下shift+tab键时要执行的代码
+                        let input = event.target;
+                        input.value = input.value.split(registry.searchData.subSearch.searchBoundary)[0]
+                        event.target.value = event.target.value.toLowerCase();
+                        // 手动触发输入事件
+                        input.dispatchEvent(new Event("input", { bubbles: true }));
+                    }
+                    event.preventDefault();
                 }
+
             })
-            // 这个监听用来处理上下选择范围的操作
+
+            // searchInputDocument.keydown：这个监听用来处理上下选择范围的操作
             searchInputDocument.keydown(function (event){
                 let e = event || window.event;
 
@@ -2895,12 +2965,12 @@
             }
             // 返回undfind表示没有定义匹配对应的SpecialRouting，执行通用路由 | null表示跳过 | 返回数组表示SpecialRouting执行搜索得到的结果
             const searchableSpecialRoutingHandler = async function(search,rawKeyword){
-                const keywordForFill0 = registry.searchData.parseRawKeywordForFill(rawKeyword)[0];
+                const keywordForFill0 = registry.searchData.subSearch.getParentKeyword(rawKeyword);
                 for(let key of Object.keys(searchableSpecialRouting)) {
                     if(isMatch(key,keywordForFill0)) {
                         const value = searchableSpecialRouting[key];
                         if(typeof value === "string") {
-                            registry.searchData.triggerSearchHandle(value+registry.searchData.searchBoundary)
+                            registry.searchData.triggerSearchHandle(value+registry.searchData.subSearch.searchBoundary)
                             return [];
                         }
                         if(typeof value === "function") return await value(search,rawKeyword,keywordForFill0);
@@ -2909,21 +2979,12 @@
                 // 表示没有匹配到SpecialRouting
                 return undefined;
             }
-            registry.searchData.searchEven.event[".*"+registry.searchData.searchBoundary+".*"] = async function(search,rawKeyword) {
-                const rawKeywordForFill = registry.searchData.parseRawKeywordForFill(rawKeyword,true)
-                // 如果是输入的是第二段的可搜索填充内容，不用再搜索
-                if(rawKeywordForFill.length > 1) {
-                    // 看当前是否有内容显示，如果没有要利用第一段搜索，否则跳过
-                    if(registry.searchData.searchData == null || registry.searchData.searchData.length === 0) {
-                        return search(rawKeywordForFill[0]);
-                    }
-                    return;
-                }
+            registry.searchData.searchEven.event[".*"+registry.searchData.subSearch.searchBoundary+".*"] = async function(search,rawKeyword) {
                 const specialRoutinResult = await searchableSpecialRoutingHandler(search,rawKeyword)
                 // 当没有优先Result, 只搜索“可搜索”项
                 return Array.isArray(specialRoutinResult)
                     ? specialRoutinResult
-                    : await search(`${registry.searchData.searchProTag} ${rawKeywordForFill[0]}`);
+                    : await search(`${registry.searchData.searchProTag} ${registry.searchData.subSearch.getParentKeyword()}`);
             }
             // 搜索AOP
             async function searchAOP(search,rawKeyword) {
@@ -2963,7 +3024,7 @@
                     /* 取消注释会导致虽然是15条，但有些匹配度高的依然不能匹配
                     // 如果已达到搜索要显示的条数，则不再搜索 && 已经是本次最后一次过滤了 => 就不要扫描全部数据了，只搜出15条即可
                     let currentMeetConditionItemSize = searchLevelData[0].length + searchLevelData[1].length + searchLevelData[2].length;
-                    if(currentMeetConditionItemSize >= registry.searchData.showSize && searchUnits.length == 0 && registry.searchData.isSearchPro() ) break;
+                    if(currentMeetConditionItemSize >= registry.searchData.showSize && searchUnits.length == 0 && registry.searchData.subSearch.isSubSearchMode() ) break;
                     */
                     // 将数据放在指定搜索层级数据上
                     if (
@@ -2981,7 +3042,7 @@
                 searchResultData.push(...DataWeightScorer.sort(searchLevelData[1],registry.searchData.idFun));
                 searchResultData.push(...DataWeightScorer.sort(searchLevelData[2],registry.searchData.idFun));
 
-                if(searchUnits.length > 0 && searchUnits[searchUnits.length-1].trim() != registry.searchData.searchBoundary.trim()) {
+                if(searchUnits.length > 0 && searchUnits[searchUnits.length-1].trim() != registry.searchData.subSearch.searchBoundary.trim()) {
                     // 递归搜索
                     searchResultData = searchUnitHandler(searchResultData,searchUnits.join(" "));
                 }
@@ -3052,8 +3113,14 @@
                 // 搜索使用的数据版本
                 let version = registry.searchData.version;
                 let rawKeyword = e.target.value;
-                // 维护registry.searchData.KeywordForFill
-                registry.searchData.KeywordForFill = registry.searchData.parseRawKeywordForFill(rawKeyword);
+
+                // 在本次搜索加入到历史前检查(如果之前是子搜索模式且现在还是子搜索模式那就跳过搜索,因为内是子搜索内容被修改不进行搜索)
+                if(registry.searchData.subSearch.isEnteredSubSearchMode && registry.searchData.subSearch.isSubSearchMode()
+                  && registry.searchData.searchHistory.seeCurrentEqualsLastByRealKeyword()) return;
+
+                // 添加到搜索历史（维护这个历史有用是为了子搜索模式的“进”-“出”）
+                registry.searchData.searchHistory.add(rawKeyword)
+
                 // 字符串重叠匹配度搜索（类AI搜索）
                 async function stringOverlapMatchingDegreeSearch(rawKeyword) {
                     const endTis = registry.view.tis.beginTis("(;｀O´)o 匹配度模式搜索中...")
@@ -3347,7 +3414,7 @@
                             // 挂载MS_script_env_var，实现系统脚本API到视图
                             // registry.script.script_env_var是给脚本系统通知的  window.MS_script_env_var是view页获取的
                             actualWindow.MS_script_env_var = registry.script.script_env_var = {
-                                fillKeyword: registry.searchData.keywordForFill[1] || "",
+                                fillKeyword: registry.searchData.subSearch.getSubSearchKeyword() || "",
                                 event: {
                                    sendListener : [] // (fillKeyword)=>{}
                                 }
@@ -3391,8 +3458,8 @@
                     url = url.replace(templateStr,parseAfterStr);
                 });
                 // 如果搜索的真正keyword为空字符串，则去掉模板跳转
-                if( registry.searchData.keyword.split(registry.searchData.searchBoundary).length < 2
-                   || registry.searchData.keyword.split(registry.searchData.searchBoundary)[1].trim() == "" ) {
+                if( registry.searchData.keyword.split(registry.searchData.subSearch.searchBoundary).length < 2
+                   || registry.searchData.keyword.split(registry.searchData.subSearch.searchBoundary)[1].trim() == "" ) {
                     url = registry.searchData.clearUrlSearchTemplate(initUrl);
                 }
                 // 跳转（url如果有模板，可能已经去掉模板，取决于是“搜索模式”）
@@ -3402,7 +3469,7 @@
             //registry.searchData.searchHandle = handler;
             const refresh = debounce(handler, 300)
             // 第一次触发 scroll 执行一次 fn，后续只有在停止滑动 1 秒后才执行函数 fn
-            searchBox.on('input', refresh)
+            searchInputDocument.on('input', refresh)
 
             // 初始化后将isInitializedView变量设置为true
             isInitializedView = true;
@@ -3448,6 +3515,7 @@
             searchInputDocument.focus()
             // 当输入框失去焦点时，隐藏视图
             searchInputDocument.blur(function() {
+                if(registry.view.logo.isLogoButtonPressedRef.value) return;
                 setTimeout(function(){
                     if(registry.searchData.searchEven.isSearching) return;
                     // 判断输入框的内容是不是":debug"或是否正处于阅读模式,如果是，不隐藏
