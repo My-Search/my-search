@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         我的搜索
 // @namespace    http://tampermonkey.net/
-// @version      6.9.5
+// @version      6.9.9
 // @description  打造订阅式搜索，让我的搜索，只搜精品！
 // @license MIT
 // @author       zhuangjie
@@ -14,7 +14,7 @@
 // @require      https://unpkg.com/pinyin-pro
 
 // @require      https://cdn.jsdelivr.net/npm/showdown@1.9.0/dist/showdown.min.js
-// @resource markdown-css https://sindresorhus.com/github-markdown-css/github-markdown.css
+// @resource markdown-css https://cdn.jsdelivr.net/gh/My-Search/markdown-css/markdown.css
 
 // @require      https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js
 // @resource code-css https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/default.min.css
@@ -176,24 +176,25 @@
 
     // 数据缓存器
     let cache = {
+        prefix: "",
         get(key) {
-            return GM_getValue(key);
+            return GM_getValue(this.prefix+key);
         },
         set(key,value) {
-            this.remove(key);
-            GM_setValue(key,value);
+            this.remove(this.prefix+key);
+            GM_setValue(this.prefix+key,value);
         },
         jGet(key) {
-            let value = GM_getValue(key);
+            let value = GM_getValue(this.prefix+key);
             if( value == null) return value;
             return JSON.parse(value);
         },
         jSet(key,value) {
             value = JSON.stringify(value)
-            GM_setValue(key,value);
+            GM_setValue(this.prefix+key,value);
         },
         remove(key) {
-            GM_deleteValue(key);
+            GM_deleteValue(this.prefix+key);
         },
         cookieSet(cname,cvalue,exdays) {
             var d = new Date();
@@ -288,7 +289,7 @@
         // 使用 test 方法测试字符串是否匹配
         return regex.test(text);
     }
-    // 下次视图渲染完成调用
+    // `视图渲染完成`后调用
     function waitViewRenderingComplete(callback) {
         // 这里模拟的是当下次渲染完成后执行
         setTimeout(callback,30)
@@ -672,11 +673,8 @@
             // 在查看详情内容时，返回后事件
             itemDetailBackAfterEventListener: [
                 // 简讯内容隐藏-确定存在触发的事件 - 脚本环境变量置空
-                () => {
-                    registry.script.script_env_var = undefined;
-                }
+                () => registry.script.clearMSSE()
             ],
-            menuActive: false,
             // 视图延时隐藏时间，避免点击右边logo，还没显示就隐藏了
             delayedHideTime: 100,
             initialized: false,
@@ -860,16 +858,20 @@
                 // 搜索状态，失去焦点隐藏的一要素
                 isSearching:false,
                 async send(search,rawKeyword) {
-                    this.isSearching = true;
-                    for(let subscriptionRegular of Object.keys(this.event)) {
-                        const regex = new RegExp(subscriptionRegular,"i"); // 将正则字符串转换为正则表达式对象
-                        if(regex.test(rawKeyword) && typeof this.event[subscriptionRegular] == "function" ) {
-                            return this.event[subscriptionRegular](search,rawKeyword);
+                    try {
+                        // 标记为搜索进行中
+                        this.isSearching = true;
+                        for(let subscriptionRegular of Object.keys(this.event)) {
+                            const regex = new RegExp(subscriptionRegular,"i"); // 将正则字符串转换为正则表达式对象
+                            if(regex.test(rawKeyword) && typeof this.event[subscriptionRegular] == "function" ) {
+                                return this.event[subscriptionRegular](search,rawKeyword);
+                            }
                         }
+                        return await search(rawKeyword);
+                    }finally {
+                        // 标记为搜索结束
+                        this.isSearching = false;
                     }
-                    let result = await search(rawKeyword);
-                    this.isSearching = false;
-                    return result;
                 }
             },
             // 新数据设置的过期天数
@@ -1043,19 +1045,41 @@
             searchProTag: "[可搜索]"
         },
         script: {
-            // 当打开脚本项时，赋值
-            script_env_var: undefined, // 有哪些请看registry.script.script_env_var的赋值
+            // MSSE默认值/模板
+            MS_SCRIPT_ENV_TEMPLATE: {
+                event: {
+                    // 发送sub keyword事件
+                    sendListener: [] // 脚本页监听IPush事件
+                },
+                // 让脚本页可使用cache,为避免冲突，加前缀于区别
+                cache: {...cache, prefix: "MS_SCRIPT_CACHE:"},
+                // 让脚本页面获取脚本项数据
+                getSearchDB() {
+                    return [...registry.searchData.getData()]
+                }
+            },
+            // 当值为undefined时表示会话未开始
+            SESSION_MS_SCRIPT_ENV: undefined,
+            openSessionForMSSE() {
+                return (this.SESSION_MS_SCRIPT_ENV = (actualWindow.MS_SCRIPT_ENV = this.MS_SCRIPT_ENV_TEMPLATE));
+            },
+            clearMSSE() {
+                this.SESSION_MS_SCRIPT_ENV = undefined;
+            },
+            // 这个函数会在脚本页渲染完成后调用
             tryRunTextViewHandler() {
                 const input = registry.view.element.input;
                 const rawKeyword = input.val();
+                // 如果还在显示搜索的数据项 执行失败返回false
                 if(registry.view.seeNowMode() === registry.view.modeEnum.SHOW_ITEM_DETAIL) {
                     // 当msg不为空发送msg消息到脚本
                     const subKeyword = registry.searchData.subSearch.getSubSearchKeyword()
                     if( subKeyword !== undefined) {
                         // 通知脚本回车send事件
                         const msg = subKeyword;
-                        registry.script.script_env_var?.event.sendListener.forEach(listener=>listener(msg))
-                        // 清理掉send msg内容
+                        // actualWindow是页面真实windows对象
+                        this.SESSION_MS_SCRIPT_ENV.event.sendListener.forEach(listener=>listener(msg))
+                        // clear : 清理掉send msg内容
                         input.val(rawKeyword.replace(msg,""))
                     }
                     return true;
@@ -1722,7 +1746,7 @@
     display: block;
     background: rgba(255, 255, 255, 0);
     margin: 0px 7px 0px 0px;
-    cursor: pointer;
+    cursor: pointer !important;
     outline: none;
 }
 #logoButton:active {
@@ -2307,7 +2331,12 @@
                 if(tisTabFetchFunName === "") return;
                 let fetchFunStr = getFetchFunGetByName(tisTabFetchFunName);
 
-                let searchDataItems =(new Function('text', "return ( " + fetchFunStr + " )(`"+callBeforeParse.escape(text)+"`)"))();
+                let searchDataItems = [];
+                try {
+                    searchDataItems =(new Function('text', "return ( " + fetchFunStr + " )(`"+callBeforeParse.escape(text)+"`)"))();
+                }catch(e) {
+                    throw new Error("我的搜索 run log: 由于页面站点限制，导致数据解析失败！",e)
+                }
                 // 处理并push到全局数据容器中
                 for(let item of searchDataItems) {
                     // 转义-恢复
@@ -2530,7 +2559,7 @@
             let isSearchable = /\[\[[^\[\]]+keyword[^\[\]]+\]\]/.test(resource);
             // 判断是否为可搜索
             if( resource == null || !isHttpUrl || !isSearchable ) continue;
-            searchItem.title = registry.searchData.searchProTag+searchItem.title;
+            if(! searchItem.title.includes(registry.searchData.searchProTag)) searchItem.title = registry.searchData.searchProTag+searchItem.title;
         }
         return searchData;
     }
@@ -2720,7 +2749,7 @@
                     </ol>
                 </div>
                 <!--加“markdown-body”是使用了github-markdown.css 样式！加在markdown文档父容器中-->
-                <div id="${textViewDocumentId}" class="markdown-body" style="min-height:auto !important;">
+                <div id="${textViewDocumentId}" class="ms-markdown-body" style="min-height:auto !important;">
 
                 </div>
              </div>
@@ -2747,12 +2776,10 @@
             }
             // 菜单函数(点击输入框右边按钮时会调用)
             function onClickLogo() {
-                registry.view.menuActive = true;
                 // alert("小彩蛋：可以搜索一下“系统项”了解脚本基本使用哦~");
                 // 调用手动触发搜索函数,如果已经搜索过，搜索空串（清理）
                 let keyword = "[系统项]";
                 registry.searchData.triggerSearchHandle(searchInputDocument.val()==keyword?'':keyword);
-                setTimeout(function(){ registry.view.menuActive = false;},registry.view.delayedHideTime+100);
                 // 重新聚焦搜索框
                 registry.view.element.input.focus()
             }
@@ -2868,6 +2895,9 @@
                 }
                 // 如果是回车 && registry.searchData.pos == 0 时，设置 registry.searchData.pos = 1 (这样是为了搜索后回车相当于点击第一个)
                 if(e && e.keyCode==13 && registry.searchData.pos == 0){ // 回车选择的元素
+                    // 如果当前是在搜索中就忽略回车这个操作
+                    debugger
+                    if(registry.searchData.searchEven.isSearching) return;
                     registry.searchData.pos = 1;
                 }
 
@@ -3405,24 +3435,21 @@
                             this.afterCallback = handle;
                             return this;
                         },
+                        // mount是脚本项-脚本js调用
                         mount() {
+                            // 看脚本js是否给beforeCallback ，如果有在此执行
+                            if(this.beforeCallback != null) this.beforeCallback();
+                            // 挂载MS_SCRIPT_ENV 实现系统脚本API到视图
+                            registry.script.openSessionForMSSE();
+                            // 挂载视图
                             let viewHtml = itemData.resourceObj['view:html'];
                             let viewCss = itemData.resourceObj['view:css'];
                             let viewJs = itemData.resourceObj['view:js'];
-                            // 将html挂载到视图中
-                            if(this.beforeCallback != null) this.beforeCallback();
-                            // 挂载MS_script_env_var，实现系统脚本API到视图
-                            // registry.script.script_env_var是给脚本系统通知的  window.MS_script_env_var是view页获取的
-                            actualWindow.MS_script_env_var = registry.script.script_env_var = {
-                                fillKeyword: registry.searchData.subSearch.getSubSearchKeyword() || "",
-                                event: {
-                                   sendListener : [] // (fillKeyword)=>{}
-                                }
-                            }
                             registry.view.textView.show(viewHtml,viewCss,viewJs);
                             // wait view complate alfter ...
                             waitViewRenderingComplete(()=>{
                                 registry.script.tryRunTextViewHandler();
+                                // 看脚本js是否给afterCallback ，如果有在此执行
                                 if(this.afterCallback != null) this.afterCallback();
                             })
                         }
@@ -3515,14 +3542,20 @@
             searchInputDocument.focus()
             // 当输入框失去焦点时，隐藏视图
             searchInputDocument.blur(function() {
-                if(registry.view.logo.isLogoButtonPressedRef.value) return;
+                const isLogoButtonPressedRef = registry.view.logo.isLogoButtonPressedRef
+                if(isLogoButtonPressedRef.value) {
+                    console.logout("隐藏跳过，因为isLogoButtonPressedRef")
+                    return
+                };
                 setTimeout(function(){
-                    if(registry.searchData.searchEven.isSearching) return;
-                    // 判断输入框的内容是不是":debug"或是否正处于阅读模式,如果是，不隐藏
-                    if(isInstructions("debug") || isInstructions("read")) return;
+                    const isDebuging = isInstructions("debug");
+                    const isSearching = registry.searchData.searchEven.isSearching;
                     // 当前视图是否在展示数据，如搜索结果，简述内容？如果在展示不隐藏
-                    let isNotExhibition = (($("#matchResult").css("display") == "none" || $("#matchItems > li").length == 0 ) && ($("#text_show").css("display") == "none" || $("#text_show").text().trim() == "") );
-                    if(!isNotExhibition || registry.view.menuActive ) return;
+                    let isExhibiting = (($("#matchResult").css("display") !== "none" || $("#matchItems > li").length > 0 ) || ($("#text_show").css("display") !== "none" || $("#text_show").text().trim() != "") );
+                    if(isDebuging || isSearching || isExhibiting || registry.view.menuActive || isLogoButtonPressedRef.value) {
+                        console.logout("隐藏跳过，因为isDebuging || isSearching || isExhibiting || registry.view.menuActive || isLogoButtonPressedRef.value")
+                        return
+                    };
                     registry.view.viewVisibilityController(false);
                 },registry.view.delayedHideTime)
             });
@@ -3985,8 +4018,10 @@
 
             // 点击搜索tis-hub
             let installedList = cache.get(registry.searchData.USE_INSTALL_TISHUB_CACHE_KEY) || []; // [ {name: "官方订阅",describe: "这是官方订阅...", body: "<tis::http... />",status: ""} ]  status: disable enable installable
-            const searchButton = $("#search-tishub").click(async function() {
-                const keyword = selector(".tis-hub .keyword input").value;
+            let tisSearchInput = $(".tis-hub .keyword input");
+            let tisSearchBtn = $("#search-tishub");
+            let searchFun = async function() {
+                const keyword = tisSearchInput.val()?.trim() || '';
                 // 搜索类型（installed | market）
                 const searchType = $('.search-type input[name="search-type"]:checked').val();
                 let resultTisList = installedList.filter(item => keyword === "" || item.name.includes(keyword));
@@ -4004,6 +4039,7 @@
                          map[item.name] = item;
                          return map;
                      }, {});
+
                     // 看本地是否已安装，如果已安装state就取已安装的项state
                     (resultTisList = marketResult).forEach(hubTis =>{
                         if(installedMap[hubTis.name]) hubTis.state = installedMap[hubTis.name].state;
@@ -4016,14 +4052,19 @@
                 function stateAsName(state) {
                     return (state === "disable" && "移除（未启用）") || (state === "enable" && "移除") || "安装";
                 }
+
                 for(let tis of resultTisList) {
+                    // tis 有该订阅的名 tis.name
+                    // tisMetaInfo 是tis.body 包含描述信息 tisMetaInfo.describe
                     const tisMetaInfo = new PageTextHandleChains(tis.body).parseAllDesignatedSingTags("tis")[0];
-                    if(tisMetaInfo == null) continue;
+                    // 自己的搜索逻辑
+                    if(! `${tis.name}`.includes(keyword) && (tisMetaInfo != null && ! `${tisMetaInfo.describe}`.includes(keyword))) return;
+                    // 渲染到页面
                     resultElement.append(`
                        <div class="hub-tis">
                            <div class="tis-info">
                                <a class="title" href="${tisMetaInfo.tabValue}" target="_blank">${tis.name}</a>
-                               <span class="describe">${tisMetaInfo.describe || '订阅没有描述信息，请确认订阅安全或相任后再选择安装！'}</span>
+                               <span class="describe">${tisMetaInfo.describe || '订阅没有描述信息，请确认订阅安全或信任后再安装！'}</span>
                            </div>
                            <button class="tis-button" tis-name="${tis.name}">${ stateAsName(tis.state) }</button>
                        </div>
@@ -4053,7 +4094,15 @@
                     // 清理缓存
                     clearCache()
                 });
-            }).click();
+            }
+            // 点击搜索
+            const searchButton = tisSearchBtn.click(searchFun).click();
+            // 回车键触发搜索
+            tisSearchInput.on("keydown", function(event) {
+                if (event.key === "Enter") {
+                    searchFun(); // 调用搜索功能
+                }
+            });
 
             // 单选框值改变时，搜索
             const radioButtons = document.querySelectorAll('input[name="search-type"]');
