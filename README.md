@@ -14,8 +14,6 @@
 
 3、使用，随便打开一个网页，按Ctrl+Alt+S, 呼出搜索框 （有内置数据可搜索）
 ![image.png](https://s2.loli.net/2024/11/28/P3BTpksdhCW9Dmv.png)
-
-![image](https://cdn.jsdelivr.net/gh/18476305640/typora@master/images/2024/06/02/20240602150202105.png)  
 ![image](https://cdn.jsdelivr.net/gh/18476305640/typora@master/images/2024/06/02/20240602150204449.png)  
 ![image](https://cdn.jsdelivr.net/gh/18476305640/typora@master/images/2024/06/02/20240602150207254.png)  
 ![image](https://cdn.jsdelivr.net/gh/18476305640/typora@master/images/2024/06/02/20240602150216422.png)  
