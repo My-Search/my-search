@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         我的搜索
 // @namespace    http://tampermonkey.net/
-// @version      6.9.9
+// @version      6.9.10
 // @description  打造订阅式搜索，让我的搜索，只搜精品！
 // @license MIT
 // @author       zhuangjie
@@ -213,6 +213,7 @@
             return "";
         }
     }
+
     // 责任链对象工厂
     function getResponsibilityChain() {
         return {
@@ -319,7 +320,7 @@
     // ==偏业务工具函数==
     // 使用责任链模式——对pageText进行操作的工具
     class PageTextHandleChains {
-        pageText  = "";
+        pageText = "";
         constructor(pageText = "") {
             this.pageText = pageText;
         }
@@ -1056,7 +1057,9 @@
                 // 让脚本页面获取脚本项数据
                 getSearchDB() {
                     return [...registry.searchData.getData()]
-                }
+                },
+                // 让脚本页面获取选择的文本
+                getSelectedText
             },
             // 当值为undefined时表示会话未开始
             SESSION_MS_SCRIPT_ENV: undefined,
@@ -1090,6 +1093,48 @@
     }
     let dao = {}
 
+    // registry.registry.viewDocument
+    // 页面文本选择器
+    function getSelectedText(tis = '请选择页面文本') {
+        function createTipElement() {
+            const tipElement = document.createElement('p');
+            tipElement.textContent = tis;
+            // 设置行内样式
+            tipElement.style.position = 'fixed';
+            tipElement.style.top = '0';
+            tipElement.style.left = '50%';
+            tipElement.style.transform = 'translateX(-50%)';
+            tipElement.style.backgroundColor = 'black';
+            tipElement.style.color = 'white';
+            tipElement.style.padding = '10px 20px';
+            tipElement.style.fontSize = '16px';
+            tipElement.style.zIndex = '9999';
+            tipElement.style.borderRadius = '5px';
+            document.body.appendChild(tipElement);
+            return tipElement;
+        }
+        const view = registry.view.viewDocument;
+        if(view == null) throw new Error('调用页面文本选择器异常，原因：视图隐藏不允许！')
+        let tipElement = createTipElement();
+        return new Promise((resolve) => {
+            // 先隐藏搜索视图
+            view.style.display = "none";
+            // 监听鼠标抬起事件（用户结束选择）
+            const onMouseUp = () => {
+                const selectedText = window.getSelection().toString().trim();
+                // 确保用户已选择文本
+                if (selectedText) {
+                    tipElement?.remove();
+                    view.style.display = "block";
+                    resolve(selectedText);
+                    document.removeEventListener('mouseup', onMouseUp);
+                }
+            };
+
+            // 监听鼠标抬起事件
+            document.addEventListener('mouseup', onMouseUp);
+        });
+    }
     // 网页脚本自动执行函数
     let autoRunStringScript = {
         cacheKey : "autoRunStringScriptKey",
@@ -2896,7 +2941,6 @@
                 // 如果是回车 && registry.searchData.pos == 0 时，设置 registry.searchData.pos = 1 (这样是为了搜索后回车相当于点击第一个)
                 if(e && e.keyCode==13 && registry.searchData.pos == 0){ // 回车选择的元素
                     // 如果当前是在搜索中就忽略回车这个操作
-                    debugger
                     if(registry.searchData.searchEven.isSearching) return;
                     registry.searchData.pos = 1;
                 }
