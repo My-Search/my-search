@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         我的搜索
 // @namespace    http://tampermonkey.net/
-// @version      6.9.10
+// @version      6.9.11
 // @description  打造订阅式搜索，让我的搜索，只搜精品！
 // @license MIT
 // @author       zhuangjie
@@ -106,6 +106,53 @@
         // www.baidu.com 会识别为链接
         simplifiedAutoLink: true
     });
+    // 简述内容转markdown前
+    function sketchResourceToHtmlBefore(txtStr = "") {
+        // 1、“换行”转无意义中间值
+        txtStr = txtStr.replace(/<\s*br\s*\/\s*>/gm,"?br?"); // 单行简述下的换行，注意要在"<",">"转意前就要做了，注意顺序
+        // 2、特殊字符 转无意义中间值
+        txtStr = txtStr.replace(/</gm,"?lt?").replace(/>/gm,"?gt?").replace(/"/gm,"?quot?").replace(/'/gm,"?#39?");
+        return txtStr;
+    }
+    //简述内容转markdown
+    function sketchResourceToHtmlAfter(txtStr = "") {
+        // 1、链接变超链接,这里必需要使用“先匹配再替换”
+        const regexParam = /[^("?>]\s*(https?:\/\/[^\s()（）\[\]<>"`]+)/gm;
+        let m;
+        let textStrClone = txtStr;
+        while ((m = regexParam.exec(textStrClone)) !== null) {
+            // 这对于避免零宽度匹配的无限循环是必要的
+            if (m.index === regexParam.lastIndex) {
+                regexParam.lastIndex++;
+            }
+            let match = m[0];
+            // 为简讯内容的url添加可链接
+            const regex = /(https?:\/\/[^\s()（）\[\] `]+)/gm;
+            const subst = `<a href="$1" target="_blank">$1</a>`;
+            // 被替换的值将包含在结果变量中
+            let aTab = match.replace(regex, subst);
+            txtStr = txtStr.replace(match, aTab);
+        }
+        // 2、无意义中间值 转有意符
+        function revert(text) {
+            let obj = {
+                "?lt?":"&lt;",
+                "?gt?":"&gt;",
+                "?quot?":"&quot;",
+                "?#39?":"&#39;",
+                "?br?":"<br />"
+            }
+            for(let key in obj) {
+                text = text.toReplaceAll(key,obj[key]);
+            }
+            return text;
+        }
+        txtStr = revert(txtStr);
+        return txtStr;
+    }
+    function md2html(rawText) {
+        return sketchResourceToHtmlAfter(converter.makeHtml(sketchResourceToHtmlBefore( rawText )))
+    }
 
     // 提取URL根域名
     function getUrlRoot(url,isRemovePrefix = true,isRemoveSuffix = true) {
@@ -1059,7 +1106,9 @@
                     return [...registry.searchData.getData()]
                 },
                 // 让脚本页面获取选择的文本
-                getSelectedText
+                getSelectedText,
+                // 挂载markdown
+                md2html
             },
             // 当值为undefined时表示会话未开始
             SESSION_MS_SCRIPT_ENV: undefined,
@@ -1763,22 +1812,22 @@
 /*当视图小于等于1400px时*/
 @media (max-width: 1400px) {
   #my_search_box {
-    left: 21%;
-    right:21%;
+    left: 20%;
+    right:20%;
   }
 }
 /*当视图小于等于1200px时*/
 @media (max-width: 1200px) {
   #my_search_box {
-    left: 18%;
-    right:18%;
+    left: 15%;
+    right:15%;
   }
 }
 /*当视图小于等于800px时*/
 @media (max-width: 800px) {
   #my_search_box {
-    left: 15%;
-    right:15%;
+    left: 10%;
+    right:10%;
   }
 }
 /*输入框右边按钮*/
@@ -3364,51 +3413,6 @@
                 registry.searchData.pos = 0;
             }
 
-
-            // 简述内容转markdown前
-            function sketchResourceToHtmlBefore(txtStr = "") {
-                // 1、“换行”转无意义中间值
-                txtStr = txtStr.replace(/<\s*br\s*\/\s*>/gm,"?br?"); // 单行简述下的换行，注意要在"<",">"转意前就要做了，注意顺序
-                // 2、特殊字符 转无意义中间值
-                txtStr = txtStr.replace(/</gm,"?lt?").replace(/>/gm,"?gt?").replace(/"/gm,"?quot?").replace(/'/gm,"?#39?");
-                return txtStr;
-            }
-            //简述内容转markdown
-            function sketchResourceToHtmlAfter(txtStr = "") {
-                // 1、链接变超链接,这里必需要使用“先匹配再替换”
-                const regexParam = /[^("?>]\s*(https?:\/\/[^\s()（）\[\]<>"`]+)/gm;
-                let m;
-                let textStrClone = txtStr;
-                while ((m = regexParam.exec(textStrClone)) !== null) {
-                    // 这对于避免零宽度匹配的无限循环是必要的
-                    if (m.index === regexParam.lastIndex) {
-                        regexParam.lastIndex++;
-                    }
-                    let match = m[0];
-                    // 为简讯内容的url添加可链接
-                    const regex = /(https?:\/\/[^\s()（）\[\] `]+)/gm;
-                    const subst = `<a href="$1" target="_blank">$1</a>`;
-                    // 被替换的值将包含在结果变量中
-                    let aTab = match.replace(regex, subst);
-                    txtStr = txtStr.replace(match, aTab);
-                }
-                // 2、无意义中间值 转有意符
-                function revert(text) {
-                    let obj = {
-                        "?lt?":"&lt;",
-                        "?gt?":"&gt;",
-                        "?quot?":"&quot;",
-                        "?#39?":"&#39;",
-                        "?br?":"<br />"
-                    }
-                    for(let key in obj) {
-                        text = text.toReplaceAll(key,obj[key]);
-                    }
-                    return text;
-                }
-                txtStr = revert(txtStr);
-                return txtStr;
-            }
             $("#matchItems").on("click","li > a",function(e) {
                 let targetObj = e.target;
                 // 如果当前标签是svg标签，那委托给父节点
@@ -3444,7 +3448,7 @@
                 let hasVassal = $(targetObj).attr("vassal") != null;
                 // 初始化textView注册表中的对象
                 function showTextPage(title,desc,body) {
-                    registry.view.textView.show(`<span style='color:red'>标题</span>：${title}<br /><span style='color:red'>描述：</span>${desc}<br /><span style='color:red'>简述内容：</span><br />${sketchResourceToHtmlAfter(converter.makeHtml(sketchResourceToHtmlBefore( body )))} `)
+                    registry.view.textView.show(`<span style='color:red'>标题</span>：${title}<br /><span style='color:red'>描述：</span>${desc}<br /><span style='color:red'>简述内容：</span><br />${md2html(body)} `)
                 }
                 if(hasVassal) {
                     showTextPage(itemData.title,"主项的相关/附加内容",itemData.vassal);
