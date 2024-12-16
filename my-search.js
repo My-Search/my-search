@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         我的搜索
 // @namespace    http://tampermonkey.net/
-// @version      6.9.11
+// @version      6.9.13
 // @description  打造订阅式搜索，让我的搜索，只搜精品！
 // @license MIT
 // @author       zhuangjie
@@ -20,10 +20,12 @@
 // @resource code-css https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/default.min.css
 
 // @require https://update.greasyfork.org/scripts/501646/1429885/string-overlap-matching-degree.js
+// @noframes
 
 // @grant        window.onurlchange
 // @grant        GM_setValue
 // @grant        GM_xmlhttpRequest
+// @connect      *
 // @grant        GM_getValue
 // @grant        GM_addStyle
 // @grant        GM_getResourceText
@@ -290,7 +292,7 @@
         }
     }
     // 请求包装
-    function request(type, url, { query, body }, header) {
+    function request(type, url, { query, body,header = {},config ={}} = {}) {
         return new Promise(function(resolve, reject) {
             var formData = new FormData();
             var isFormData = false;
@@ -307,6 +309,7 @@
             }
 
             var ajaxOptions = {
+                ...config,
                 url: url + (query ? ("?" + $.param(query)) : ""),
                 method: type,
                 headers: header,
@@ -324,10 +327,18 @@
                 ajaxOptions.contentType = false;
             } else {
                 ajaxOptions.data = JSON.stringify(body);
-                ajaxOptions.contentType = "application/json; charset=utf-8";
             }
-
-            $.ajax(ajaxOptions);
+            config?.crossDomain
+             // ajax兼容
+             ? GM_xmlhttpRequest({
+                ...ajaxOptions,
+                onload: (xhr)=>{
+                    ajaxOptions.success(xhr.responseText)
+                },
+                onerror: ajaxOptions.error,
+                ontimeout: ajaxOptions.error
+            })
+            : $.ajax(ajaxOptions);
         });
     }
     // 正则字符串匹配目录字符串-匹配工具
@@ -588,13 +599,14 @@
         },
         baseRequest(type,url,{query,body}={},header = {}) {
             query = {...query}
-            return request(type, url, { query,body },header);
+            return request(type, url, { query,body,header });
         },
         getUserInfo() {
             return this.baseRequest("GET","https://api.github.com/user")
         },
         commitIssues(body) {
-            return this.baseRequest("POST","https://api.github.com/repos/My-Search/TisHub/issues",{body},{Authorization:`Bearer ${this.token}`})
+            const header = {Authorization:`Bearer ${this.token}`};
+            return this.baseRequest("POST","https://api.github.com/repos/My-Search/TisHub/issues",{ body, header })
         },
         // get issues不要加 Authorization 头，可能会出现401
         getTisForIssues({keyword,state} = {}) {
@@ -605,10 +617,10 @@
             return keyword
                 ? new Promise((resolve,reject)=>{
                      // API兼容处理
-                     this.baseRequest("GET",`https://api.github.com/search/issues?q=repo:My-Search/TisHub+state:${state}+in:title+${keyword}`,{},{})
+                     this.baseRequest("GET",`https://api.github.com/search/issues?q=repo:My-Search/TisHub+state:${state}+in:title+${keyword}`)
                      .then(response=>resolve(response.items)).catch(error=>resolve([]));
                   })
-                : this.baseRequest("GET","https://api.github.com/repos/My-Search/TisHub/issues",{query},{})
+                : this.baseRequest("GET","https://api.github.com/repos/My-Search/TisHub/issues",{query})
         }
     }
 
@@ -1108,7 +1120,9 @@
                 // 让脚本页面获取选择的文本
                 getSelectedText,
                 // 挂载markdown
-                md2html
+                md2html,
+                // 挂载http request对象
+                request
             },
             // 当值为undefined时表示会话未开始
             SESSION_MS_SCRIPT_ENV: undefined,
@@ -2264,28 +2278,22 @@
                 let {index,url,initUrl} = cdnRequestStatus??{};
                 // -2 表示加速链接+原始链接都不会请求成功（异常） ,null表示index状态已经是-2了还去请求返回null
                 if(index == null || index < -2 ) return;
-                $.ajax({
-                    url: `${url}?t=${+new Date().getTime()}`,
-                    timeout: 5000, // 设置超时时间为 5 秒钟
-                    success: function (result) {
-                        resolve(result)
-                    },
-                    error: function(xhr, status, errorThrown){
-                        console.log("cdn失败，不加速请求！");
-                        // 反馈错误,调整请求顺序，避免错误还是访问
-                        // 获取请求错误的根域名
-                        let { domain } = parseUrl(url);
-                        // 根据根域名从模板中找出完整域名
-                        let templates = allCdns.filter(item=>item.includes(domain));
-                        // 反馈
-                        if(templates.length > 0 ) {
-                            if(index > 0 || index <= cache.get(registry.other.UPDATE_CDNS_CACHE_KEY).length ) feedbackError(registry.other.UPDATE_CDNS_CACHE_KEY,templates[0]);
-                        }
-                        console.logout("反馈重调整后：",cache.get(registry.other.UPDATE_CDNS_CACHE_KEY)); // 反馈的结果只会在下次起作用
-                        // 处理失败后的回调函数代码
-                        rq(cdnPack({index,url,initUrl}));
+                request("GET",url,{query: {time: new Date().getTime()} ,config : {timeout: 5000} }).then(resolve).catch(()=>{
+                    console.log("CDN失败，不加速请求！");
+                    // 反馈错误,调整请求顺序，避免错误还是访问
+                    // 获取请求错误的根域名
+                    let { domain } = parseUrl(url);
+                    // 根据根域名从模板中找出完整域名
+                    let templates = allCdns.filter(item=>item.includes(domain));
+                    // 反馈
+                    if(templates.length > 0 ) {
+                        if(index > 0 || index <= cache.get(registry.other.UPDATE_CDNS_CACHE_KEY).length ) feedbackError(registry.other.UPDATE_CDNS_CACHE_KEY,templates[0]);
                     }
-                });
+                    console.logout("反馈重调整后：",cache.get(registry.other.UPDATE_CDNS_CACHE_KEY)); // 反馈的结果只会在下次起作用
+                    // 处理失败后的回调函数代码
+                    rq(cdnPack({index,url,initUrl}));
+                })
+
             }
             rq(cdnPack({index:0,url:dataSourceUrl,initUrl:dataSourceUrl}));
         });
