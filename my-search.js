@@ -333,7 +333,7 @@
              ? GM_xmlhttpRequest({
                 ...ajaxOptions,
                 onload: (xhr)=>{
-                    ajaxOptions.success(xhr.responseText)
+                    ajaxOptions.success(xhr.responseText,xhr)
                 },
                 onerror: ajaxOptions.error,
                 ontimeout: ajaxOptions.error
