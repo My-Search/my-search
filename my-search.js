@@ -1701,7 +1701,7 @@
     margin-right:2px;
 }
 .related-links {
-    margin: 0 5px;
+    margin: 0 3px;
     display: flex;
     gap: 4px; /* 增加链接之间的间距 */
 }
@@ -1713,7 +1713,7 @@
     padding: 3px 10px;
     background: #f0f4ff; /* 改为浅蓝背景色 */
     border: 1px solid #e0eaff; /* 添加浅色边框 */
-    margin: 0 0.5px;
+    margin-left: 1px;
     color: #3578FE; /* 深蓝色字体 */
     text-decoration: none;
     border-radius: 4px; /* 圆角处理 */
@@ -1912,6 +1912,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  margin: 0 3px;
 }
 #matchResult .flag {
   color: #fff;
@@ -3389,7 +3390,7 @@
                     // 构建快捷link html
                     function buildRelatedLinksHtml(links) {
                         if (links == null || links.length === 0) return '';
-                        let html = '<div class="related-links">';
+                        let html = `<div class="related-links">`;
                         // 遍历 links 数组，为每个链接生成对应的 <a> 标签
                         links.forEach(link => {
                             html += `<a href="${link.url}" target="_blank" title="${link.title}">${link.text}</a>`;
