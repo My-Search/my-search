@@ -1944,7 +1944,7 @@
     display: inline-block;
     width: 24px;
     height: 24px;
-    margin: 0 8px 0 3px;
+    margin: 0 6px 0 3px;
     box-shadow: 0 0 2px rgba(0, 0, 0, 0.5);
     border-radius: 30%;
     box-sizing: border-box;
@@ -2213,7 +2213,7 @@
                  captureResult = ifNotDescMatchReg.exec(line);
                  if(captureResult == null ) return;
                  title = captureResult[1];
-                 desc = "--无描述--";
+                 desc = "-暂无描述信息-";
                 resource = captureResult[2];
              }else {
                 // 正常语法
