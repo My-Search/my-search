@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         我的搜索
 // @namespace    http://tampermonkey.net/
-// @version      6.9.13
+// @version      6.9.20
 // @description  打造订阅式搜索，让我的搜索，只搜精品！
 // @license MIT
 // @author       zhuangjie
@@ -13,7 +13,7 @@
 // @require https://cdn.jsdelivr.net/npm/jquery@3.6.2/dist/jquery.min.js
 // @require      https://unpkg.com/pinyin-pro
 
-// @require      https://cdn.jsdelivr.net/npm/showdown@1.9.0/dist/showdown.min.js
+// @require      https://cdn.jsdelivr.net/npm/showdown@2.1.0/dist/showdown.min.js
 // @resource markdown-css https://cdn.jsdelivr.net/gh/My-Search/markdown-css/markdown.css
 
 // @require      https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js
@@ -108,52 +108,8 @@
         // www.baidu.com 会识别为链接
         simplifiedAutoLink: true
     });
-    // 简述内容转markdown前
-    function sketchResourceToHtmlBefore(txtStr = "") {
-        // 1、“换行”转无意义中间值
-        txtStr = txtStr.replace(/<\s*br\s*\/\s*>/gm,"?br?"); // 单行简述下的换行，注意要在"<",">"转意前就要做了，注意顺序
-        // 2、特殊字符 转无意义中间值
-        txtStr = txtStr.replace(/</gm,"?lt?").replace(/>/gm,"?gt?").replace(/"/gm,"?quot?").replace(/'/gm,"?#39?");
-        return txtStr;
-    }
-    //简述内容转markdown
-    function sketchResourceToHtmlAfter(txtStr = "") {
-        // 1、链接变超链接,这里必需要使用“先匹配再替换”
-        const regexParam = /[^("?>]\s*(https?:\/\/[^\s()（）\[\]<>"`]+)/gm;
-        let m;
-        let textStrClone = txtStr;
-        while ((m = regexParam.exec(textStrClone)) !== null) {
-            // 这对于避免零宽度匹配的无限循环是必要的
-            if (m.index === regexParam.lastIndex) {
-                regexParam.lastIndex++;
-            }
-            let match = m[0];
-            // 为简讯内容的url添加可链接
-            const regex = /(https?:\/\/[^\s()（）\[\] `]+)/gm;
-            const subst = `<a href="$1" target="_blank">$1</a>`;
-            // 被替换的值将包含在结果变量中
-            let aTab = match.replace(regex, subst);
-            txtStr = txtStr.replace(match, aTab);
-        }
-        // 2、无意义中间值 转有意符
-        function revert(text) {
-            let obj = {
-                "?lt?":"&lt;",
-                "?gt?":"&gt;",
-                "?quot?":"&quot;",
-                "?#39?":"&#39;",
-                "?br?":"<br />"
-            }
-            for(let key in obj) {
-                text = text.toReplaceAll(key,obj[key]);
-            }
-            return text;
-        }
-        txtStr = revert(txtStr);
-        return txtStr;
-    }
     function md2html(rawText) {
-        return sketchResourceToHtmlAfter(converter.makeHtml(sketchResourceToHtmlBefore( rawText )))
+        return converter.makeHtml( rawText )
     }
 
     // 提取URL根域名
@@ -822,9 +778,9 @@
             },
             seeNowMode() {
                if(this.viewDocument == null) return this.modeEnum.UN_INIT;
-               if(this.element.textView.css('display') === "block") return this.modeEnum.SHOW_ITEM_DETAIL;
-               if(this.element.matchResult.css('display') === "block") return this.modeEnum.SHOW_RESULT;
-               return this.viewDocument.style.display === "block" ? this.modeEnum.WAIT_SEARCH : this.modeEnum.HIDE;
+               if(this.element.textView.css('display')!== "none") return this.modeEnum.SHOW_ITEM_DETAIL;
+               if(this.element.matchResult.css('display') !== "none") return this.modeEnum.SHOW_RESULT;
+               return this.viewDocument.style.display !== "none" ? this.modeEnum.WAIT_SEARCH : this.modeEnum.HIDE;
             }
         },
         other: {
@@ -974,7 +930,7 @@
             clearUrlSearchTemplate(url) {
                 return url.replace(/\[\[[^\[\]]*\]\]/gm,"");
             },
-            faviconSources: [
+            faviconSources: [ // favicon来源：https://api.cxr.cool/
                 // "https://favicon.yandex.net/favicon/${domain}",  淘汰原因：当获取不到favicon时不报错，而是显示空白图标
                 // "https://api.cxr.cool/ico/?url=${domain}", 淘汰原因：慢
                 // "https://api.vvhan.com/api/ico?url=${domain}", 淘汰原因：快，但存在很多网站的图标无法获取
@@ -1100,9 +1056,13 @@
                     // 上一次真实搜索keyword === 当前真实搜索keyword
                     return registry.searchData.subSearch.getParentKeyword(this.history[0]) === registry.searchData.subSearch.getParentKeyword(this.currentKeyword());
                 }
-
             },
-            searchProTag: "[可搜索]"
+            searchProTag: "[可搜索]",
+            links: {
+                stringifyForSearch(links) {
+                   return links.reduce((acc, cur) => acc + `${cur.text}${cur.url}${cur.title}`, '');
+                }
+            }
         },
         script: {
             // MSSE默认值/模板
@@ -1742,6 +1702,34 @@
     margin-right:2px;
 
 }
+.related-links {
+    margin: 0 5px;
+    display: flex;
+    gap: 4px; /* 增加链接之间的间距 */
+}
+
+.related-links > a {
+    white-space: nowrap;
+    line-height: 16px;
+    font-size: 12px;
+    padding: 3px 10px;
+    background: #f0f4ff; /* 改为浅蓝背景色 */
+    border: 1px solid #e0eaff; /* 添加浅色边框 */
+    margin: 0;
+    color: #3578FE; /* 深蓝色字体 */
+    text-decoration: none;
+    border-radius: 4px; /* 圆角处理 */
+    transition: all 0.3s ease; /* 平滑过渡效果 */
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05); /* 添加轻微阴影 */
+}
+
+.related-links > a:hover {
+    background: #e6f0ff; /* 悬停时背景颜色变浅 */
+    border-color: #cce1ff; /* 改变边框颜色 */
+    color: #255ec8; /* 深蓝色字体加深 */
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); /* 增加阴影效果 */
+}
+
 .resultItem svg{
    width: 16px;
    height:16px;
@@ -1912,6 +1900,7 @@
    display: flex;
    justify-content: space-between;
    align-items: center;
+   margin-left: 0;
 }
 
 #matchResult li > a {
@@ -1928,7 +1917,7 @@
 }
 
 #matchResult .item_desc {
-  color: #4d5156;
+  color: #474747;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2091,16 +2080,42 @@
                     let appendTarget = "resource"; // resource 或 vassal
                     let current_build_search_item_resource = "";  // 主要内容
                     let current_build_search_item_vassal = ""; // 附加内容
+                    let current_build_search_item_links = []; // 快捷链接列表
                     let point = 0; // 指的是上面的 current_build_search_item
                     let default_desc = "--无描述--"
-
+                    function extractLinkInfo(str) {
+                       const regex = /\\[(.*?)\\]\\((https?:\\/\\/[^\\s]+)(?:\\s+"([^"]+)")?\\)/;
+                       const match = str.match(regex);
+                       if (match) {
+                          return {
+                             text: match[1],   // 链接文本
+                             url: match[2],    // URL
+                             title: match[3] || ''  // 标题，如果没有则为空字符串
+                          };
+                       } else {
+                          return null;  // 如果没有匹配到内容，返回 null
+                       }
+                    }
+                    function isOnlyLinkLine(str) {
+                       // 按行拆分，并检查每一行
+                       return !str.split('\\n').some(line => line.trim() !== '' && !line.trim().startsWith('> '));
+                    }
                     function getTitleLineData(titleLine) {
-                       const regex = /^# ([^()（）]+)[(（]?([^()（）]*)[^)）]?/;
+                       try {
+                          const regex = /^#\\s*([^（(]+)(?:[（(](.*)[）)])?\\s*$/;
                        let matchData =  regex.exec(titleLine)
                        return {
                           title: matchData[1],
                           desc: ((matchData[2]==null || matchData[2] == "")?default_desc:matchData[2])
                        }
+                       }catch(e) {
+                          debugger
+                       }
+                    }
+                    // 是否为空字符串，忽略空格/换行
+                    function isBlank(str) {
+                       const trimmedStr = str.replace(/\\s+/g, '').replace(/[\\n\\r]+/g, '');
+                       return trimmedStr === '';
                     }
                     for (let i = 0; i < lines.length; i++) {
                         let line = lines[i];
@@ -2121,25 +2136,37 @@
                            // 分割行不添加
                            continue
                         }
+
                         // 向当前搜索项目容器追加当前行
                         if(appendTarget == "resource") {
                            current_build_search_item_resource += (line+"\\n");
                         }else {
-                           current_build_search_item_vassal += (line+"\\n");
+                           // 判断当前行是否为特殊行-快捷link行
+                           if(isOnlyLinkLine(current_build_search_item_vassal) && (line.trim().length > 0 && isOnlyLinkLine(line)) ) {
+                              current_build_search_item_links.push(extractLinkInfo(line))
+                           }else {
+                              current_build_search_item_vassal += (line+"\\n");
+                           }
                         }
+
                         // 如果是最后一行，打包
                         let nextLine = lines[i+1];
                         if(i === lines.length-1 || ( nextLine != null && nextLine.indexOf("# ") == 0 )) {
                            // 加入resource，最后一项
                            current_build_search_item.resource = current_build_search_item_resource;
-                           if(current_build_search_item_vassal != "") {
+                           if(! isBlank(current_build_search_item_vassal)) {
                               current_build_search_item.vassal = current_build_search_item_vassal;
+                           }
+                           if(current_build_search_item_links.length > 0) {
+                              current_build_search_item.links = current_build_search_item_links;
                            }
                            // 打包装箱
                            search_data_lines.push(current_build_search_item);
-                           // 重置资源添加目标 和 vassal
+                           // 重置资源
                            appendTarget = "resource"
-                           current_build_search_item_vassal = ""
+                           current_build_search_item_resource = "";
+                           current_build_search_item_vassal = "";
+                           current_build_search_item_links = [];
                         }
                     }
                     // 添加种类
@@ -3161,7 +3188,7 @@
                     if (
                         (( getPinyinByKeyword(dataItem.title,true).includes(pinyinKeyword) || dataItem.title.toUpperCase().includes(keyword) ) && searchLevelData[0].push(dataItem) )
                         || (( getPinyinByKeyword(dataItem.desc,true).includes(pinyinKeyword) || dataItem.desc.toUpperCase().includes(keyword)) && searchLevelData[1].push(dataItem) )
-                        || ( `${dataItem.resource}${dataItem.vassal}`.substring(0, 2048).toUpperCase().includes(keyword) && searchLevelData[2].push(dataItem) )
+                        || ( `${dataItem.links && registry.searchData.links.stringifyForSearch(dataItem.links)}${dataItem.resource}${dataItem.vassal}`.substring(0, 4096).toUpperCase().includes(keyword) && searchLevelData[2].push(dataItem) )
                     ) {
                         // 向满足条件的数据对象添加在总数据中的索引
                     }
@@ -3268,7 +3295,7 @@
                                     const { tags , cleaned } = extractTagsAndCleanContent(`${item.title}`);
                                     str2ScopeMap[cleaned.toUpperCase()] = 4;
                                     str2ScopeMap[`${item.describe}${tags.join()}`.toUpperCase()] = 2;
-                                    str2ScopeMap[`${item.resource}${item.vassal}`.substring(0, 2048).toUpperCase()] = 1;
+                                    str2ScopeMap[`${item.links && registry.searchData.links.stringifyForSearch(item.links)}${item.resource}${item.vassal}`.substring(0, 4096).toUpperCase()] = 1;
                                     return str2ScopeMap;
                                 },"desc",{sort:"desc",onlyHasScope:true});
                                 const searchEnd = Date.now();
@@ -3361,6 +3388,17 @@
 
                     let isSketch = !isUrl(searchResultItem.resource);//  searchResultItem.resource.trim().toUpperCase().indexOf("HTTP") != 0;
                     let vassalSvg = `<svg t="1685187993813" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="3692" width="200" height="200"><path d="M971.904 372.736L450.901333 887.338667a222.976 222.976 0 0 1-312.576 0 216.362667 216.362667 0 0 1 0-308.736l468.906667-463.232a148.736 148.736 0 0 1 208.469333 0 144.298667 144.298667 0 0 1 0 205.824L346.752 784.469333a74.325333 74.325333 0 0 1-104.192 0 72.106667 72.106667 0 0 1 0-102.912l416.853333-411.733333-52.181333-51.456-416.853333 411.733333a144.298667 144.298667 0 0 0 0 205.781334 148.650667 148.650667 0 0 0 208.426666 0l468.906667-463.146667a216.490667 216.490667 0 0 0 0-308.736 223.061333 223.061333 0 0 0-312.661333 0L60.16 552.832l1.792 1.792a288.384 288.384 0 0 0 24.277333 384.170667c106.24 104.917333 273.322667 112.768 388.906667 23.936l1.792 1.834666L1024 424.192l-52.096-51.456z" fill="#666666" p-id="3693"></path></svg>`;
+                    // 构建快捷link html
+                    function buildRelatedLinksHtml(links) {
+                        if (links == null || links.length === 0) return '';
+                        let html = '<div class="related-links">';
+                        // 遍历 links 数组，为每个链接生成对应的 <a> 标签
+                        links.forEach(link => {
+                            html += `<a href="${link.url}" target="_blank" title="${link.title}">${link.text}</a>`;
+                        });
+                        html += '</div>';
+                        return html;
+                    }
                     // 将符合的数据装载到视图
                     let item = `
                     <li class="resultItem">
@@ -3372,6 +3410,7 @@
                             <!--描述信息-->
                             <span class="item_desc">（${searchResultItem.desc}）</span>
                         </a>
+                        ${buildRelatedLinksHtml(searchResultItem.links)}
                         ${searchResultItem.vassal !=null?'<a index="'+searchResultItem.index+'" version="'+version+'" vassal="true" class="vassal" title="查看相关联/同类项内容" target="_blank">'+vassalSvg+'</a>':''}
                     </li>`
                     matchItemsHtml += item;
@@ -3557,7 +3596,7 @@
             // 初始化后将isInitializedView变量设置为true
             isInitializedView = true;
         }
-        let hideView = function () {
+        function ensureViewHide() {
             // 隐藏视图
             // 如果视图还没有初始化，直接退出
             if (!isInitializedView) return;
@@ -3591,7 +3630,7 @@
             // 触发视图隐藏事件
             registry.view.viewHideEventAfterListener.forEach(fun=>fun());
         }
-        let showView = function () {
+        function showView() {
             // 让视图可见
             viewDocument.style.display = "block";
             //聚焦
@@ -3607,9 +3646,9 @@
                     const isDebuging = isInstructions("debug");
                     const isSearching = registry.searchData.searchEven.isSearching;
                     // 当前视图是否在展示数据，如搜索结果，简述内容？如果在展示不隐藏
-                    let isExhibiting = (($("#matchResult").css("display") !== "none" || $("#matchItems > li").length > 0 ) || ($("#text_show").css("display") !== "none" || $("#text_show").text().trim() != "") );
-                    if(isDebuging || isSearching || isExhibiting || registry.view.menuActive || isLogoButtonPressedRef.value) {
-                        console.logout("隐藏跳过，因为isDebuging || isSearching || isExhibiting || registry.view.menuActive || isLogoButtonPressedRef.value")
+                    let isWaitSearch = registry.view.seeNowMode() === registry.view.modeEnum.WAIT_SEARCH;
+                    if(isDebuging || isSearching || !isWaitSearch || isLogoButtonPressedRef.value) {
+                        console.logout("隐藏跳过，条件列表不满足！")
                         return
                     };
                     registry.view.viewVisibilityController(false);
@@ -3632,7 +3671,7 @@
                 showView();
             } else {
                 // 隐藏视图 >>>
-                if (isInitializedView) hideView();
+                ensureViewHide();
             }
         }
     })();
