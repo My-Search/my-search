@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         我的搜索
 // @namespace    http://tampermonkey.net/
-// @version      6.9.20
+// @version      7.0.0
 // @description  打造订阅式搜索，让我的搜索，只搜精品！
 // @license MIT
 // @author       zhuangjie
@@ -152,6 +152,10 @@
             return {protocol,domain,path,params,rootUrl,rawUrl}
         }
         return null;
+    }
+    function isHttpUrl(url = "") {
+        url = url.trim();
+        return /^https?:\/\/.+/i.test(url)
     }
 
     // 检查网站是否可用
@@ -1261,8 +1265,7 @@
         // 被“空白符”切割后只能有一个元素
         if(resource.split(/\s+/).length != 1) return false;
         // 如果不满足url，返回false
-        if(! /^https?:\/\/.+/i.test(resource) ) return false;
-        return true;
+        return isHttpUrl(resource);
     }
     /*cache.remove(registry.searchData.SEARCH_DATA_KEY);
      cache.remove(registry.searchData.SEARCH_DATA_KEY+"2");
@@ -2316,7 +2319,7 @@
         // dataSourceUrl 转text
         return new Promise(function (resolve, reject) {
             // 如果不是URL，那直接返回
-            if( ! /^(https?|ftp):\/\/[^\s/$.?#].[^\s]*$/i.test(dataSourceUrl) ) return resolve(dataSourceUrl) ;
+            if( ! isHttpUrl(dataSourceUrl) ) return resolve(dataSourceUrl) ;
             let allCdns = cache.get(registry.other.UPDATE_CDNS_CACHE_KEY);
             function rq( cdnRequestStatus ) {
                 let {index,url,initUrl} = cdnRequestStatus??{};
@@ -2445,7 +2448,15 @@
             item.title = processedDefaultTag + item.title;
         }
     }
-    function dataSourceHandle(resourcePageUrl,tisMetaInfo = {}) { //resourcePageUrl 可以是url也可以是已经url解析出来的资源
+    // baseUrl + relativePath（文件 ./文件  ../文件）= relativePath的绝对路径
+    function resolveUrl(baseUrl, relativePath) {
+        // 创建一个链接对象，方便解析路径
+        const base = new URL(baseUrl);
+        // 处理相对路径
+        const resolvedUrl = new URL(relativePath, base);
+        return resolvedUrl.href;
+    }
+    function dataSourceHandle(resourcePageUrl,tisMetaInfo = {}, parentResourcePageUrl) { //resourcePageUrl 可以是url也可以是已经url解析出来的资源
         const tisTabFetchFunName = tisMetaInfo && tisMetaInfo.fetchFun;
         if(! registry.searchData.isDataInitialized) {
             registry.searchData.isDataInitialized = true;
@@ -2455,6 +2466,11 @@
         let processHistory = registry.searchData.processHistory; // 处理过哪些链接需要记住，避免重复
         if(processHistory.includes(resourcePageUrl)) return; // 判断
         processHistory.push(resourcePageUrl); // 记录
+        // 如果不根，且不是resourcePageUrl不是httpUrl,需要将resourcePageUrl（相对路径）根据parentResourcePageUrl(绝对路径)转为http url
+        if( ! tisMetaInfo.root && !isHttpUrl(resourcePageUrl) ) {
+            // if(parentResourcePageUrl == null) throw new Error(`订阅异常，相对路径: ${resourcePageUrl},没有父绝对路径!`);
+            resourcePageUrl = resolveUrl(parentResourcePageUrl,resourcePageUrl);
+        }
         urlToText(resourcePageUrl).then(text => {
             if(tisTabFetchFunName == null) {
                 // --> 是配置 <--
@@ -2469,7 +2485,7 @@
                 let tis = null;
                 while((tis = waitQueue.pop()) != undefined) {
                     // tis第一个是url,第二是fetchFun
-                    dataSourceHandle(tis.tabValue,tis);
+                    dataSourceHandle(tis.tabValue,tis, resourcePageUrl);
                 }
             }else {
                 // --> 是内容 <--
@@ -2547,7 +2563,7 @@
         // 持续执行
         registry.searchData.searchPlaceholder("UPDATE","🔁 数据准备更新中...",5000)
         // 内部将使用递归，解析出信息
-        getDataSources().then(dataSources=>{dataSourceHandle(dataSources,null,true)})
+        getDataSources().then(dataSources=>{dataSourceHandle(dataSources,{ root: true})})
     }
     // 检查数据有效性，且只有数据无效时挂载到数据
     dataInitFun();
