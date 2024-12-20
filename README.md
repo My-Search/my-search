@@ -12,15 +12,16 @@
 2、安装我们的脚本：[我的搜索](https://greasyfork.org/zh-CN/scripts/457020-%E6%88%91%E7%9A%84%E6%90%9C%E7%B4%A2)
 
 3、使用，随便打开一个网页，按Ctrl+Alt+S, 呼出搜索框 （有内置数据可搜索）
+
 **公共：所有项都支持`快捷链接`、`附加内容`.**
 
-普通URL项：
+**普通URL项**：
 ![](https://cdn.jsdelivr.net/gh/18476305640/typora@master/images/2024/12/20/1734673226801.png)
-简述文本项：  
+**简述文本项**：  
 ![](https://cdn.jsdelivr.net/gh/18476305640/typora@master/images/2024/12/20/1734673445483.png)
-脚本项：有提供一些API，详情请看后面的模板
+**脚本项**：有提供一些API，详情请看后面的模板
 ![](https://cdn.jsdelivr.net/gh/18476305640/typora@master/images/2024/12/20/1734673700418.png)
-应用项：应用项属于脚本项，脚本执行时调用view.mount()就是应用项。有提供一些API，详情请看后面的模板。
+**应用项**：应用项属于脚本项，脚本执行时调用view.mount()就是应用项。有提供一些API，详情请看后面的模板。
 ![](https://cdn.jsdelivr.net/gh/18476305640/typora@master/images/2024/12/20/1734673912941.png)
 
 ## 2、🐱‍🏍编写自己的订阅文件
