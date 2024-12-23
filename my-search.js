@@ -867,7 +867,7 @@
             // 用户安装tishub订阅的缓存
             USE_INSTALL_TISHUB_CACHE_KEY: "USE_INSTALL_TISHUB_CACHE_KEY",
             // 默认用户不关注标签
-            USER_DEFAULT_UNFOLLOW: ["程序员","成人内容","Adults only"],
+            USER_DEFAULT_UNFOLLOW: ["Adults only"],
             // 已经清理了用户不关注的与隐藏的标签，这是用户应真正搜索的数据
             CLEANED_SEARCH_DATA_CACHE_KEY: "CLEANED_SEARCH_DATA_CACHE_KEY",
             subscribeKey: "subscribeKey",
