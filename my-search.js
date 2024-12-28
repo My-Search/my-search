@@ -867,7 +867,7 @@
             // 用户安装tishub订阅的缓存
             USE_INSTALL_TISHUB_CACHE_KEY: "USE_INSTALL_TISHUB_CACHE_KEY",
             // 默认用户不关注标签
-            USER_DEFAULT_UNFOLLOW: ["Adults only"],
+            USER_DEFAULT_UNFOLLOW: ["程序员","成人内容","Adults only"],
             // 已经清理了用户不关注的与隐藏的标签，这是用户应真正搜索的数据
             CLEANED_SEARCH_DATA_CACHE_KEY: "CLEANED_SEARCH_DATA_CACHE_KEY",
             subscribeKey: "subscribeKey",
@@ -1714,14 +1714,10 @@
     line-height: 16px;
     font-size: 12px;
     padding: 3px 10px;
-    background: #f0f4ff; /* 改为浅蓝背景色 */
-    border: 1px solid #e0eaff; /* 添加浅色边框 */
-    margin-left: 1px;
-    color: #3578FE; /* 深蓝色字体 */
+    background: #f0f4ff;
+    color: #3578FE;
     text-decoration: none;
-    border-radius: 4px; /* 圆角处理 */
-    transition: all 0.3s ease; /* 平滑过渡效果 */
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05); /* 添加轻微阴影 */
+    transition: all 0.3s ease;
 }
 
 .related-links > a:hover {
