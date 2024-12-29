@@ -1897,7 +1897,7 @@
    display: flex;
    justify-content: space-between;
    align-items: center;
-   margin: 2px 0 !important;
+   margin: 1.3px 0 !important;
 }
 
 #matchResult li > a {
