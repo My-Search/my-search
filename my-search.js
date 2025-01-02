@@ -758,7 +758,7 @@
                 getLogoImg: function () {
                     let viewDocument = registry.view.viewDocument;
                     if(viewDocument == null ) return null;
-                    let currentLogoImg = $(viewDocument).find("#logoButton img");
+                    let currentLogoImg = registry.view.element.logoButton.find("img");
                     if(this.originalLogoImgSrc == null) this.originalLogoImgSrc = currentLogoImg.attr("src");
                     return currentLogoImg;
                 },
@@ -898,17 +898,17 @@
             NEW_DATA_EXPIRE_DAY_NUM:7,
             // 搜索逻辑，可用来手动触发搜索
             triggerSearchHandle: function (keyword){
-                if(keyword == null) keyword = $("#my_search_input").val()??"";
                 // 获取input元素
-                const inputEl = document.getElementById('my_search_input');
-                // 当视图没有初始化时调用该函数inputEl会为null
-                if(inputEl == null) return;
-                // 如果有传入搜索值，就要设置值
-                if(keyword != null) {
-                    inputEl.value = keyword;
+                const inputEl = registry.view.element?.input;
+                // 如果视图还没有初始化，触发搜索无效
+                if(! inputEl) return;
+                if(keyword == null) {
+                   keyword = inputEl.val() ?? ""
+                }else {
+                   inputEl.val(keyword);
                 }
                 // 手动触发input事件
-                inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+                inputEl[0].dispatchEvent(new Event("input", { bubbles: true }));
                 // 维护全局搜索keyword
                 this.keyword = keyword;
             },
@@ -925,6 +925,55 @@
             NEW_ITEMS_TAG: "[新]",
             // 搜索的keyword
             keyword: "",
+            // 搜索的附加文件
+            searchForFile: {
+                files: [],
+                refreshFileListView() {
+                    registry.view.element.files.html('')
+                    for(let [index,file] of this.files.entries()) {
+                        const reader = new FileReader();
+                        reader.onload = function (e) {
+                            // 创建 img 元素并设置 src 为文件的 Base64 数据
+                            registry.view.element.files.append(`
+                                        <div class="ms-input-file" key="${index}">
+                                            <img src="${e.target.result}" />
+                                        </div>
+                                    `);
+                        };
+                        reader.readAsDataURL(file);
+                    }
+                },
+                push(file) {
+                    this.files.push(file);
+                    this.refreshFileListView();
+                },
+                delete() {
+                    this.files.pop();
+                    this.refreshFileListView();
+                },
+                clear() {
+                    const trashCan = this.files;
+                    this.files = [];
+                    this.refreshFileListView();
+                    return trashCan;
+                },
+                start() {
+                    registry.view.element.input.on('paste', event => {
+                        // 希望input外层元素无法感知到paste的动作
+                        event.stopPropagation();
+                        // 获取粘贴事件对象中的剪贴板数据
+                        const clipboardData = event.originalEvent.clipboardData || window.clipboardData;
+                        if (clipboardData) {
+                            const items = clipboardData.items;
+                            for (let i = 0; i < items.length; i++) {
+                                const file = items[i].getAsFile();
+                                if (! file.type.startsWith('text/')) this.push(file);
+                            }
+                        }
+                    });
+                    registry.view.viewHideEventAfterListener.push(() => this.clear());
+                }
+            },
             // 持久化Key
             SEARCH_DATA_KEY: "SEARCH_DATA_KEY",
             SEARCH_NEW_ITEMS_KEY:"SEARCH_NEW_ITEMS_KEY",
@@ -985,14 +1034,17 @@
                 // 当前应用“输入提示”
                 let inputDesc = inputDescs[Math.floor(Math.random()*inputDescs.length)];
                 if(target == "UPDATE") {
+                    const inputEl = registry.view.element?.input;
+                    // 如果视图还没挂载，无需显示
+                    if(! inputEl) return;
                     if(this.tmpVar != null) {
                         clearTimeout(this.tmpVar);
                     }
                     this.tmpVar = setTimeout(()=>{
-                        $("#my_search_input").attr("placeholder",this.searchPlaceholder());
+                        inputEl.attr("placeholder",this.searchPlaceholder());
                     },duration)
                     let updateResult = placeholder==null?`🔁 数据库更新到 ${this.data==null?0:this.data.length}条`:placeholder;
-                    $("#my_search_input").attr("placeholder",updateResult);
+                    inputEl.attr("placeholder",updateResult);
                     return updateResult;
                 }
                 return inputDesc;
@@ -1104,14 +1156,13 @@
                 if(registry.view.seeNowMode() === registry.view.modeEnum.SHOW_ITEM_DETAIL) {
                     // 当msg不为空发送msg消息到脚本
                     const subKeyword = registry.searchData.subSearch.getSubSearchKeyword()
-                    if( subKeyword !== undefined) {
-                        // 通知脚本回车send事件
-                        const msg = subKeyword;
-                        // actualWindow是页面真实windows对象
-                        this.SESSION_MS_SCRIPT_ENV.event.sendListener.forEach(listener=>listener(msg))
-                        // clear : 清理掉send msg内容
-                        input.val(rawKeyword.replace(msg,""))
-                    }
+                    if( subKeyword == undefined && registry.searchData.searchForFile.files.length === 0) return;
+                    // 通知脚本回车send事件
+                    const msg = subKeyword;
+                    // actualWindow是页面真实windows对象
+                    this.SESSION_MS_SCRIPT_ENV.event.sendListener.forEach(listener=>listener(msg,registry.searchData.searchForFile.clear()))
+                    // clear : 清理掉send msg内容
+                    input.val(rawKeyword.replace(msg,""))
                     return true;
                 }
                 return false;
@@ -1615,14 +1666,31 @@
 #searchBox {
   height: 45px;
   background: #ffffff;
-  padding: 0px;
+  padding: 0 10px;
   box-sizing: border-box;
   z-index: 10001;
   position: relative;
   display: flex;
-  justify-content: space-between;
   align-items: center;
   flex-wrap: nowrap;
+}
+#searchBox #ms-input-files {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  height: 100%;
+}
+#ms-input-files .ms-input-file {
+  height: 70%;
+  display: flex;
+  align-items: center;
+  margin-right: 2px;
+}
+#ms-input-files .ms-input-file img {
+  height: 100%;
+  box-sizing: border-box;
+  padding: 3px;
+  background: #d3d3d3;
 }
 
 #my_search_input {
@@ -1633,7 +1701,7 @@
   outline: none;
   font-size: 15px;
   background: #fff;
-  padding: 0px 10px;
+  padding: 0px;
   box-sizing: border-box;
   color: rgba(0, 0, 0, .87);
   font-weight: 400;
@@ -1683,6 +1751,14 @@
 #my_search_input {
 	animation-duration: 1s;
 	animation-name: my_search_view;
+    outline: none;
+    border: none;
+    box-shadow: none;
+}
+#my_search_input:focus{
+    outline: none;
+    border: none;
+    box-shadow: none;
 }
 
 .resultItem {
@@ -1897,7 +1973,7 @@
    display: flex;
    justify-content: space-between;
    align-items: center;
-   margin: 1px 0 !important;
+   margin: 0.5px 0 !important;
 }
 
 #matchResult li > a {
@@ -1981,7 +2057,7 @@
     }
     // 判断是否为指定指令
     function isInstructions(cmd) {
-        let searchInputDocument = $("#my_search_input")
+        let searchInputDocument = registry.view.element.input;
         if(searchInputDocument == null) return false;
         let regexString = "^\\s*:" + cmd + "\\s*$";
         let regex = new RegExp(regexString,"i");
@@ -2873,30 +2949,25 @@
     // 加入到数据改变后事件处理
     registry.searchData.dataChangeEventListener.push(refreshIndex);
 
-
-
     // 模块二
     registry.view.viewVisibilityController = (function() {
         // 整个视图对象
         let viewDocument = null;
-        let searchInputDocument = null;
-        let matchItems = null;
-        let searchBox = null;
-
-        let isInitializedView = false;
-        let logoButton = null;
-        let textView = null;
-        let matchResult = null;
         let initView = function () {
             // 初始化视图
             let view = document.createElement("div")
             view.id = "my_search_box";
             let menu_icon = "data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBzdGFuZGFsb25lPSJubyI/PjwhRE9DVFlQRSBzdmcgUFVCTElDICItLy9XM0MvL0RURCBTVkcgMS4xLy9FTiIgImh0dHA6Ly93d3cudzMub3JnL0dyYXBoaWNzL1NWRy8xLjEvRFREL3N2ZzExLmR0ZCI+PHN2ZyB0PSIxNjc3MDgxNTk3NzA3IiBjbGFzcz0iaWNvbiIgdmlld0JveD0iMCAwIDEwMjQgMTAyNCIgdmVyc2lvbj0iMS4xIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHAtaWQ9IjEzNDYxIiB4bWxuczp4bGluaz0iaHR0cDovL3d3dy53My5vcmcvMTk5OS94bGluayIgd2lkdGg9IjIwMCIgaGVpZ2h0PSIyMDAiPjxwYXRoIGQ9Ik0yMjQuMiA0NzIuM2MtMTMtNS43LTMuNy0yMy41IDguMi0xOSA5MSAzNCAxNDYuOCAxMDguNyAxODIuNCAxMzguNSA1LjYgNC43IDE0IDIuOSAxNy4zLTMuNSAxNi44LTMyIDQ1LjgtMTEzLjctNTcuMS0xNjguNi04Ny4zLTQ2LjUtMTg4LTUzLjYtMjQ3LjMtODIuMi0xNC41LTctMzEuMSA0LjYtMjkuOSAyMC43IDUgNjkuNyAyOC45IDEyNC43IDYyLjMgMTgxLjUgNjcuMyAxMTQuMyAxNDAuNiAxMzIuOSAyMTYuNiAxMDQgMi4yLTAuOSA0LjUtMS44IDctMyA3LTMuNCA4LjMtMTIuOSAyLjUtMTguMSAwLjEgMC00NS43LTY5LjMtMTYyLTE1MC4zeiIgZmlsbD0iI0ZGRDQwMSIgcC1pZD0iMTM0NjIiPjwvcGF0aD48cGF0aCBkPSJNMjgyLjcgODQ5LjljNzkuNS0xMzcgMTcyLjQtMjYzLjEgMzg1LjQtNDAxLjMgOS44LTYuNCAyLjEtMjEuNS04LjktMTcuNEM0OTcuNyA0OTIuOCA0MjkuNyA1ODUgMzczLjMgNjQwLjhjLTguNyA4LjctMjMuNCA2LjMtMjkuMS00LjYtMjcuMi01MS44LTY5LjUtMTc0LjEgOTcuMy0yNjMuMSAxNDcuNy03OC44IDMxOS45LTkxLjQgNDI5LjctOTMuMyAxOC45LTAuMyAzMS41IDE5LjQgMjMuMyAzNi40Qzg2My43IDM4MCA4NDIuNiA0NzggNzg5LjkgNTY3LjYgNjgwLjggNzUzLjEgNTQ1LjUgNzY2LjcgNDIyLjIgNzE5LjhjLTguOC0zLjQtMTguOC0wLjItMjQgNy43LTE2LjYgMjUuMi01MC4zIDgwLjEtNTguNyAxMjIuNC0xMS40IDU2LjgtODIuMiA0My45LTU2LjggMHoiIGZpbGw9IiM4QkMwM0MiIHAtaWQ9IjEzNDYzIj48L3BhdGg+PHBhdGggZD0iTTM3NSA0MTkuNmMtMzAuMSAyOC4yLTQ1LjggNTcuNy01Mi40IDg2LjEgNDAuNiAzMi40IDcwLjIgNjcuNyA5Mi4xIDg1LjkgMS4yIDEgMi41IDEuNiAzLjkgMi4xIDYuNS02LjcgMTMuMy0xMy43IDIwLjQtMjAuNyAxNS4yLTM3LjkgMjUuMy0xMDUuNy02NC0xNTMuNHpNMzE4LjggNTQ4LjJjMS42IDM2LjEgMTQuNyA2Ny42IDI1LjUgODguMSA1LjcgMTAuOSAyMC4zIDEzLjMgMjkuMSA0LjYgNC45LTQuOSAxMC0xMCAxNS4xLTE1LjQtMC42LTEtMS4zLTItMi4yLTIuOCAwLTAuMS0yMC4xLTMwLjUtNjcuNS03NC41eiIgZmlsbD0iIzhCQTAwMCIgcC1pZD0iMTM0NjQiPjwvcGF0aD48L3N2Zz4=";
-            const matchResultDocumentId = "matchResult", textViewDocumentId = "text_show",searchInputDocumentId = "my_search_input",matchItemsId = "matchItems",searchBoxId = "searchBox",logoButtonId = "logoButton";
+            const matchResultDocumentId = "matchResult", textViewDocumentId = "text_show",searchInputDocumentId = "my_search_input",matchItemsId = "matchItems",searchBoxId = "searchBox",logoButtonId = "logoButton",msInputFilesId = "ms-input-files";
             view.innerHTML = (`
              <div id="tis"></div>
              <div id="my_search_view">
                 <div id="${searchBoxId}" >
+                    <div id="${msInputFilesId}">
+                       <!-- <div class="ms-input-file">
+                          <img src="https://greasyfork.org/vite/assets/blacklogo96-CxYTSM_T.png" />
+                       </div> -->
+                    </div>
                     <input placeholder="${registry.searchData.searchPlaceholder()}" id="${searchInputDocumentId}" />
                     <button id="${logoButtonId}" >
                        <img src="${menu_icon}" draggable="false" />
@@ -2915,23 +2986,29 @@
             // 挂载到文档中
             document.body.appendChild(view)
             // 整个视图对象放在组件全局中/注册表中
-            registry.view.viewDocument = viewDocument = view;
+            viewDocument = registry.view.viewDocument = view;
             // 想要追加请看下面registry.view.element是否已经包含，没有在那下面追加即可~
 
             // 搜索框对象
-            searchInputDocument = $(document.getElementById(searchInputDocumentId))
-            matchItems = $(document.getElementById(matchItemsId));
-            searchBox = $(document.getElementById(searchBoxId))
-            logoButton = $(document.getElementById(logoButtonId))
-            textView = $(document.getElementById(textViewDocumentId))
-            matchResult = $(document.getElementById(matchResultDocumentId));
+            let searchInputDocument = $(document.getElementById(searchInputDocumentId)),
+            matchItems = $(document.getElementById(matchItemsId)),
+            searchBox = $(document.getElementById(searchBoxId)),
+            logoButton = $(document.getElementById(logoButtonId)),
+            textView = $(document.getElementById(textViewDocumentId)),
+            matchResult = $(document.getElementById(matchResultDocumentId)),
+            msInputFiles = $(document.getElementById(msInputFilesId));
             // 将视图对象放到注册表中
             registry.view.element = {
                 input: searchInputDocument,
                 logoButton,
+                matchItems,
+                searchBox,
                 matchResult,
-                textView
+                textView,
+                files: msInputFiles
             }
+            // 开启files 粘贴事件监听
+            registry.searchData.searchForFile.start();
             // 菜单函数(点击输入框右边按钮时会调用)
             function onClickLogo() {
                 // alert("小彩蛋：可以搜索一下“系统项”了解脚本基本使用哦~");
@@ -2961,22 +3038,7 @@
                     searchInputDocument.focus(); // 输入框聚焦
                 }
             });
-            /*// 图片放大/还原
-            textView.on("click","img",function(e) {
-                let target = e.target;
-                if(target.isEnlarge??false) {
-                    $(this).animate({
-                        width: "100%"
-                    });
-                    // 还原
-                    target.isEnlarge = false;
-                }else {
-                    $(this).animate({
-                        width: "900px"
-                    });
-                    target.isEnlarge = true;
-                }
-            });*/
+
             // 设置视图已经初始化
             registry.view.initialized = true;
 
@@ -3014,6 +3076,8 @@
                         registry.searchData.triggerSearchHandle();
                         event.preventDefault();
                         return;
+                    }else if(keyword === ""){
+                        registry.searchData.searchForFile.delete();
                     }
                 }else if ( ! event.shiftKey && event.keyCode === 9 ) { // Tab键
                     if(! registry.searchData.subSearch.isSubSearchMode()) {
@@ -3069,7 +3133,7 @@
                     }
                 }
                 // 设置显示样式
-                let activeItem = $($("#matchItems > li")[registry.searchData.pos-1]);
+                let activeItem = $(registry.view.element.matchItems.find('li')[registry.searchData.pos-1]);
                 // 设置活跃背景颜色
                 let activeBackgroundColor = "#dee2e6";
                 activeItem.css({
@@ -3431,7 +3495,7 @@
                 let loadErrorTagIcon = "data:image/svg+xml;base64,PHN2ZyB2ZXJzaW9uPSIxLjIiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgdmlld0JveD0iMCAwIDIwMCAyMDAiIHdpZHRoPSIyMDAiIGhlaWdodD0iMjAwIj4KCTx0aXRsZT5hcDh6Yy12cm1kbzwvdGl0bGU+Cgk8ZGVmcz4KCQk8aW1hZ2UgIHdpZHRoPSIxOTQiIGhlaWdodD0iMTk0IiBpZD0iaW1nMSIgaHJlZj0iZGF0YTppbWFnZS9wbmc7YmFzZTY0LGlWQk9SdzBLR2dvQUFBQU5TVWhFVWdBQUFNSUFBQURDQ0FZQUFBQWI0UjB4QUFBQUFYTlNSMElCMmNrc2Z3QUFIWjFKUkVGVWVKenRYUXU0SkVWMXZzUmdpQ1lLdmpVKzhCRk5RREJDZ3ZMNTJnQVNnV0FJNXFyTDNlbnFxYTQ3M1QzTDFTV0o4YTJicUtnSmo1QVk4a0dJSmlDSjhqSVFKUVlSQ0JCV1dJS0NLQVo1aU1ndVlGWjJlY2d1N0M0NXA3cm0zcDY1M1QzZFBWVjlxbnU2disvLzdtVjFvYnZPK2F0T1ZaM3puNW1abE9lSko1NW9NUUc2M1lXWkR2ZG5HQTltbUVENE00NEhQejM0TS9rekgrVGZnYi92Q3Z3OWxQL3N3TC9UeFg4djc4OXdIczY0cmt2K3ZYVkg2a1A5WW5VQjUzeW0wdzNCV1FHOG1KUHJSeWpod3UvZHJqK3pkdTFhOHZHcEMxb2lGSVRyd293c0ltZHpTSjArRHlKaTRtclNCZlI2UGZMeHN4VXRFY1pnQmN5cUR1K0I0MVBQOXBxZ1FpeGN3YWpIMWlhMFJFakE3T3h4VVd6UEIrR0dCUTVzQ0xoYXVHNjdVclJFVU1CNE9wcjFHekx6bHlTRjU2MG10MFZMQkFJSUlhSlFvYVR6ZExzTHorNXcvN2RoOVhnSGhCMS93b1IvTXV3ZHpnUkNmUlgrOTNXQVd3RWJBVDlUMkFaNFF1SEJ3Wi9EMy9rUi9QMmJ3Qm12Z1BjNUgvNzVkSWNIZitIeVlKN3gvcUdjaDY5eVhYZTNTa2lCcXdTTXlZb3AybXhQTFJGY1VjejVPZWUvMnVtR2I0SFllalhqL21ud1o5Y29SMzZpWXR3SjRkcEZnT05ody83dWJ0ZmZDMWF6WHpCRkNvZUhzRXA0NVBacWlhRDVZMlg0STNLRUNXNndweVBDVmVCc2Z3ZXo4M2ZnejdZVE9IMU8rQS9BejR0aE5mbG9Wd1FIOVhxOXArZ2xSSFEwN016UGs5dXdKY0lFaU9ML1VHMStrd0Zod0M4NnZQZEdJTXBuNEordnAzZnVpZkFva1AwYkVHSzlIMWF3L2ZXU3dvZEp3aWUzYVV1RWdzQ2xQYzJvczdQSC9iS003WGx3THN4NkQxdmd3S1p3SzZ3V24zTGQzajVhU2RHZ2U0bkdFc0ZOQ1g4d25vWlovMjB3czUzRmFHSjhhbndQUXlqUFcvMFNMV1RnUVNQMkVJMGpRcmZiVDd6eEZVSThWNFlLWG5DN0JjNW9BM1pnK0FRaDR5eUdoWk1TQWsvZVptZG55ZTAvOVVUQTlJR2t5eTlYaEsrSG4rY0FIclBBK1d6RjNSQkNmZ2htOW1kTVNnamNRMUQ3d3RRU2dZMWNoTUd6QzRRL1IrS01aNEdUMVFpd1QrTCthYzc4L0NzbkpjVEttdTBmYWswRTExMHpsUEVaeGYvaE1SQzMza0x2VkxYRzQ3aUhjbDMvMXljaVJJM3ltV3BMaE5Fa09GamFENEdmTjFqZ1JFM0NEb1poWmEvMzh2SmtxTWZxVURzaVlCRktuQVN1Q0ZiQXovVVdPRTJUc1ExVzJWTW0yVU80d3U2OVE2MklnRm1TZzcxQXQ5dC9VWlRURSt5MHdGR21CVC9EazdmWjJka25seUtEeFNkTHRTRUNsanJpcVZDVVBoQWV6L0QybE40eHBoWGZnd25wNERKa1FEZ1doa3JXRTJIRllucTBQSnA3TStCL0xYQ0VGaEhPZ2ZqL1dlVUlZVmVvWkRVUlZzcTdBVXlBVzdPN3l2aHN3eUQ3c0ltSnNGZUdESGp4U2UxajFoTUI4MWdjR1ZkaU9vVE01NmMyZUlzc2lPQ0NVcXNERDZ6WU4xaEpCSWRqaHFPN204b0UzVUZ1NUJaNWNhOHIvTU1Ma3dIMmZxZ0cwaElodmhKd1dVTzdEOFNRTjF0ZzJCYkZzZFAxd2hQTG5DdzVEbDJacUZWRWtDZER3bC9aOEpUb2FjRjZwOWQ3Y1ZFeWNIN3NkQk1CTXlCVktFUnR3QmI2Y0gveFk5WndwaVBFZEJKQmJiS3V0TUJ3TGZUamNjY0xqczFIZ2lWVXJhWkJUZ1RNWTRHQitvRUZCbXRoRWp3NEJmWU5UeHBIZ0RpcURKTklpZUJ3LzBBbWwwOExETldpQW9UL2dXb2dTVTZmQmhSVGJqUVJaSzJ3RjJ5bE4wNkxpbkd0NDZ4K0ppdEFoaW8wVzBtSUVKME1ZYzQ3dVZGYTBPRDdFUGE4Z0JVZ2crbEx0OHFKSUpYYjJrdXlGbDU0UjBlSWx6SkwwakVxSllMTC9RWFc1Z3VaeGxad21xOHhFYndIa3hRZEovaTFZOEp3RHhRdjZIWjcrN2xld0pVazVRTVd2T3VkaGRRMGhEa3lWRVlFeHdzRmEwbGdFdmVnOWlyRTAwL1BOU21oamlxRXFFckZqL0s5YnlzU0ptRk5RMjJKQUJ2ak9kYUdRNmF3RlFqdzRZV0ZoVjhxNlFDN29MUWxvMDFzL0I2S0tlY2hBcFBIcXZySllKd0l3T0NqV0xzeE5vVnJPNkwvbTFyczVLN1pIVmFIZjJSMHEvWU51SnJsSVFMdUYrYm05QjZyR2lXQ085Ly9IWGp4Unl4d21NWUI0M3lVck5ROU14SVhQMTJlTjFsUGQ0aGtqQWl3ZkwwTVFxTDdxQjJtZ2RnT29WQ29td0J4Uk9Xdy9pY1lRVG1zV3BWeWJwNzFrY0VJRWFUYVFhc3RaQUpiWGVFZmJaSUVRNnVEbEhIQlhnd1ZmeWZzZWZLU1laWFh0NU1JTXAra1ZaZ3pBRlNoNng5YUZRbmlRUExCTzJ5bzhIdDNxcjFsWlRmUDJvbmc4T0RUOUU3VE1Jamc1OWl0aDRJRUErQmRSTVdiNlMzWUxpc1BFVndOOXd0YWllQUkvdzhxSEtocHdXT3dHaHhCU1lJNHF0eE1ZMWJ5M056QzAzS1JZY0pWUVJzUmxFN21GZ3NjcDBuWWpyTHQxTTQvaWs2bjgxUjR0MU9yR0FQNC9pL2xJUUlXOUt5ZG9QbWhGaUpBakxZcmJJNnZzOEJ4bW9UdFRJUmRhcWZQblB4UWNOa0xIakkrRmpBT2Vjamc4dkphU1ZxSWdHMkpMSENjSm1Henc4UERxQjA5RHpwZThHcDQzN3NNajhlRHE3eitLOGFUd1M5ZHZ6QXhFYkFCSDdPNjQyVHRjQnUyaktWMjhDSlkxZXM5bjVsWElsOHZJdzlEZHdzVEVTR0tGY003TEhDZXB1QlN2SU9oZHV3eWtPa1Joc05qN1AwMmxnaVlnbEdDREJNUkFmNmpKMW5nUEUzQUR0UUNRaVVQYW9lZUJFbzIva2FENDdUVjdmVitZendaaXU4VlNoUEI4WUlEV0JzU2FVQjRCL1VkZ1U1MGd1QTU4RjAvTkRoZVYyRm5wSEZrY0FwbXFKWWlndXJDMkhhbm1RdzdVZGdZaTltcG5WYzMxRVhZWmxOajUzSS9HRWNFUkpHOWJpa2lZQUdJQlk1VVkvZzNZNnNyYW9jMUNXYysrSDFtckFiRmZ5QlAvWUxEODk4NEZ5YUNXdnFNc2IyaHdNYm1HQzZjaHc0Q3c3c0x0YU5XQWJXNU5UT21Jdno3Y1VSQTVMMWtLMHdFMWFlQTJyRnN3K095NUZHRVowVEx0bit3SThKOXNWNjRiT1ZZRTRBSm1FQ0dLd3lOK1hZYzQzRkV5TnU3clJBUk9QZGZ3OW9OY2h6cjBQR3h1b3ZhNld3RjlycGoyRXpFeVBqN2w0MGpBc3NaSGhVaUFpcVZXZUI4MU1DSjRBdTZTaVNuQVNxTjI0Zzk4QVorSEJuY0hQY0t1WW1nYnBDcG5aQWExN0w1MVh0VE8xWWRBYUhqMllac2NqM3V1YkxKb0pFSThDKzgzQUpISkFOSzFzdVkxN0ltZUhXQmtubTgxNFJ0SEI3OFlUWVJzUGxNdHQxeUVVRjF0U2QzUmlMc1VPcDhha0R0YVlCWE55aTlXeE0yK3U2NFN6Wm56S1k1RnhFTTd2enRod2hYeHdlMENrSGFKb09KNE1zbTdLVDJJWm1yd3NKQ2VtYnFXQ0lvU1JaNmh5UWhRZkRGMGNHMG9RTmtuZUc2L2VjeEUvZFFVY0pmZG5qa3BhL21ZNGtBLzRKenlCMlNCZytwSkxLaHdleDBPdVRPVkhjd3ovOVRFelp6UmZpbUxDSmszVFJuRWtHcEZVL252WUVJejBnYXpHNVhqM3pJTkVQbXFvbmdKdjEyazlJejJXa1hUaklaTW9rQVM4bGZrenNrRVZ6UFB6SnBJQ0ZVSkhla0prQTFHZFJ0dDUycWRqNmREQ21LRjZrUHlna3lZemVDOXNOMWd6MFRpV0JJalhrYUFXVDRxbTY3T2NML3kwd2lwT3dUVWgvSEN4bTFNMUlpclN5d1NFWmppMnlvZW1mZG9mZjltTitWUllTa2pwMnBEL3lGZGRUT1NJbDBNZHIyUWswbmxHaVlWdHRCU1AvdUxDSWtkZDlKZkJSVHlaMlJFa3E3SjNFZ3V3WTd0MHdibkY3dnhUQ20yM1RhRGxidGIyb2hBdXkrajZkMlJHcW9yTW4wd1p5ZkozZWlwb0J4Ly9PYTdiY0RVK0JUN1Nmd1B1aTRzVVRBQktiYnFCMlJHdTU4LzdleWlCQWhyTFFwZGxPaFNqdjFWclBKSG5KWmwydkRJZTZ5WjZwdmt1TkU4TUxaOFVRWTNqc3d0ZXhpWGdzV2p6dndaM2pLaEduQWFlZlhMU0pBWFA5dm1tMTR6VGliWlJQQkMwK2tka0lib0ZTOUN4QWhQenJkTmw5cE9SSGt2WTFPRys0YzE3RXprd2pNcUJSSG5lRGZiSW9JQStES2dRKzFFOW9BcFl5aXRRY0RyTTdIWm8xL1BJRnllRFdJYnVVc2NFSTcwQlhCUWNiSm9NS3Fic0lHYnRxZ094cVIvYWF6OWdteDA3L2gxU0RhWUpBN29FVzQyNW1mZjZWcE1peUhML2NWMDVicGloMkJ0TnBQQkQ5WEdSTEprMUJNQkd4NFJlREIxeTF3UHR1d2hYbmhSNG8weFRaQkRCUzNiWG9ZRlRVeDFOdkFFUFllYjBzZFY1NndJc2hyYVdDUUJZNW5LN0FUME8xS09lRWNXSFpQeDd3V21GVSs1SGgrSDNzRllCcHc1dm0xRG9oUVNwUTBOWXlDYjd4U3M5MU9TaHZMK01YYTR1TncvMEFMbkswcEFNSUVwM2E2dmRkcGNmNUVRcWc0RjFhTEZSTjBpckVOS3YxZHB5MnV6UnJId1lRUzN4KzBNbzVtY0FQMmxwc1pxN1F3R1RBWjBIWHJueUtPSzZ6bThYOU1oVnlwSyt6d2l1Q0Y1MXZnTkkyRlZNTHovRS9nU1ZUV0JtNVNPRjV5TGsxZDRJaHdsZTZ4ZDBXd0ltMjhCdVdiOGZ1RGpkVE9Na1hBRGVIbFFJeVA0YjRpUGROMUFzQUt3UXRLbzlzQUpjMmlkYnpWS3BNeVZ2NFNFZFNKQ0xWelRETWVBVndDUnZrZ0xOWDc2dzJqL0ltNlRWWlBCS2xjcDNkOGVYQnU2dmp3R0JFNjg4SHZXZUFNTFphd1FRb0tDLzlvSFdGVWxucURiVEJSd29uOW10UEdabEJvcGU0UHd2ZFpZUHdXU1lpT3RNL0JYQnlWaGxDS0RERFprVHQ1SHFoemY5M2p1RDFyUWxra0FzdysvMHh1OEJaNWNBL01ZQjlYMmtDTlhCVVlEOTl1Wk93ZzVFd2JteVVpZU1IMUZoaTVSWDVzUTFGZHdHdlRqRHVLK2hBaGVLZUpNWVB2NzZTTkRXcFZEWWp3ZnhZWXQwVng3QURIK1JmT3c1ZWxHWGtSSmZzUFYwNkVTR0xUd0ZqNUgwc2JHOVNxbXNGbWRoWVl0TVZrMklhR3poTENyVU1sbmV1NmVJcnpPU05qRkpXREpxK1c4LzIyVUw5SmdPWC9uNUtOYmJmeVJzZUxhak1Va2U4eU1UYlpCZjMrektEN0lia1JXK2lCT2dvZlBpSzBqQWdRaGNqRVFUekRIM3BQNGIvTDROamNQam91QTJDK0ZzWmtQV3JqdGRBSEpkTTVaR2hxS1h2WFhTTm5mQ2I4bEJrNWlHUmRlSENmd2JGNU5PMi9qYmZ3V0tYekFXcmp0ZENIWlVUZ2RLdEJ0eHVKRjZRNjRHQkdkbnY3T0Y3d0k5TmprNnBWaFNXendJWVRxSTNYUWlORTJCMHlNdEZxZ0tkVWlVNDNSQUIzTjVpSTE4THZXNnNZbXpTdEtoZFhCQVBpU2kzb3NETmVTVWNoV0l6NS9Vbk94a1lJb0xSMWI2MXlmTkswcWlRUkRPakp0Q0NELysyNGdic1Z5OFpndHV0QTN5a0plRUtwMUtxSjdxMWtIbFBpSFF2K2NnbTlBVnZvZ09QNTc0MGJ1RW9TT1BQQk1oTGdIWlVyL01QVjNjQ2QxT09UMXZOaXNGbStndm9GVzJqQmc3MWU3K2xMeHExbWt4eGxKdmdxNUZtek8xYmp3ZWJ6WkJhbDdkalZiU25xNnBsd2ZCcXRDTmVRdjJBTERVYVdzKzZpY1dmNzVzczJjVC9neUJETTN3dWM2VXVzb2sxdmFRaC9KVXNnZ2hSYVkyM0NYUk93bmZWNkwyY1Zoa1dvNVlvaGhicUgwaXJyYmdxd0tYWlpBaEV3UlIxL3VaSDZCVnRNYU9Cb05vNFoxK3hwRVc3Q1ZYNy9GNmkvdmRBNHhSckh4eUZ6alpnSS9vZjZCVnRNQm5ETS9VYU5hMHIzQ05YaG9teFhlVUpGL3UyRk1IckhFcnRyd1YrbXVrVlVBN0JPYWh5SndWSGcwcEdnYnNsSXh2c3FOODEvd0lMdkxnNGV6TEhFZTQwMWtnaTZsY1dvc1JNekRWM3VMK0FGQ2pZRlBDWU05NWdUNG9WU0lRRnYwa1h3RGZqLzNXL0J1Mm93cnU4TmIyQm5wYml0TkxCQUkrdlpMMFNDQXY0SG1lNkdIaFVpcmVmRm9Dam5VdW9YMUlTTllQaFA0YVl4cjNHRkVNL2wzSDhOMXNsaUJSTktOenBlK0g3Wk9vc0hwNmdTMW90VkdHQ2ozTTBqcy8zK3J5U0dNUEVVaHdLNnFaaWdoNkVDa2dnM2tYaTBpUHNCcklpejRIc25nanphVFNDQ0pMcUpYcmVWZnB3WC9BQ2NWNkIycThrTjRvQTRRSklqd01uK3huQ21aRjVjbmhuS2pKeVZZM3dmbDRmRWs1OUJVaHltR1NRNWlkUnk1Y0YxRm56cnhFaEtVV2N4SXB4Ri9ZSWxjUU9HT2xqTVlab0FLVFBucnJDSzhDcXlKdE1SWHBTWENHV2dOdUZhbTNkUVFyVkZXelpCU0NLb3RGM3lsOHdMcVZIRGczZGl6RXBCZ0ZISUJMSklTZTBoZ3ZHNEY4T1dwUGRhaFNIT0JDU0Fiem9FZmo1SWJXK3RHTGxyWWQ1U1U4RVpWZFJNLzVJNWpJNGJROVQyb1hiK0ZNZDdQZ3pxWitBOWYxend1NUJBRzVRSTFmVUtWOHNOZlJ4ZWNHSHM5L1dMRXY2d2o0RU44cE9XclFZcG9VNHVSQTA3N0w0bExnRk1BVm4ycldJUUdobFREZENHeDNIamluazAxTTZlQnhpcXVXNndKODZvS25RNkZqZmdDSG1TNVlYSG9CQXd0dW5DMWFUc2Z3ZWRYNG5iM29yNVl2amZIQ0pDU1JKZ2tReUVYQTliWUhmdGZwUWtwVGxvSGorampwU29YeklONjJCanVpKzFjOXNNSEI4MVZsdnd3bWdRTW81emVOempZS2lBWk1KTkpQcUI4b1ZUQVk5WllIdmQySkEwRHAxQUVRRm1yQU1zZU1sUmJJZFo2Yzl0RFlOc0E0dmRpWUF6Znd0WG83ZzhKSjc4d0o4ZkJiOS9VclVIdTR2WmxobHFIdXVTaURBWVEzVWtTUDZTaTFDbk1HOFlmZEVXbVVUWWxEQ1d1TkZGNVlaV3ZNMUx5c2NhSVlLTW0renBuYllPbHFybnhGOTAyanBMRmdWdTBpMndtL1ZRQnhtWlJNQVRobHVvWHhSdmIrZm1GcDQyK3FLcmlLVkliSWNwcmRER1FRVGhNaUtNZHRXMG9XNVpiZm9TenJOYkltUVN3UXYrbHRwMmRVQlM4M2k4V1I4aUF2YjJJbjdSVFVra2tDOUxvTVJRSnpDWkMwWHZhTFpqTk9SbUkvdlBxSkdnV2FtOVBOaVNSb1RSRjI0eERCWDdranVhNWJoM21WK0pCQ0pnelNueGkyNUxKWUlJR3Q5eGZpSWlSRTFEa2s2TldpemgwbEcvR28wMDVLUE9uQitsZkZtOEtVMGpnOFBiVlNHVERNSi9LOE1iZUhxSHN4VW5qZnJVbkJETGlSRHRFOEtyS0Y5V0hRT21oRWUrc2RMRHBrQVYwZSswd09uc1EzU3lsaG9XalJBaCtDemx5enE4OThaMElrUk50T3ZVSnBVQ21OZlVraUhCdDdDbUl1NUxZcm5tMCtLanFuZm9YamJTd3N4T0NBT3NhTW1RQ1pmN0FhdHhPYVVCM0xuTWo3SldoSlc5M3JNWTdXenlEK09JTUFBMm1xQjJPSnVCR2E2czNUTkVFTUVYUi8wbktWdGg2SUZZL0diQ0YvNUo3bzd6WEY5UmVsT2h5REQxS3dPVzhjWjl4MGxwcWpoQ2hQQ3ZTRjhhVlNaeXJncURqOEtOOU56Y0FybmoyUWhXTXdFdUUwRDFrbEcvR1VzRWRRMU4rT0wrelZrZDBuT1JRKzBsVU8wTkZacXAyeWFSRWtFRUYxQTdJaWxFY05Pb2Y2VGRTUTA5RURzOW1SSFhxWUlqbjVuVkpyVWN3cG1GaGVsYU5Wd2VyaUYzUkdLb1hneER4L0JwNDdYc3NXRVd3VGFwOGNJU1hjamFaTE5Zc2J0VDg5TXAxR2xpMDFkNHM5eVBvbExXUmJ0NjN1b2lSSkRTMmVRZkFiaEVOVVBYUmdRWk5zMHZ5YVd2UkNHcmxHWjNxQUZFN2RCbHdIbjRxdHBLTXVyRnh0RnNoYXh4Vy9hZ2NocjhwVWNzK0JDOEVid09pOUoxa2lGT2l1ei9qMTI5aWZOQUdmNEdjcnRaQUNuQ0ZyZDN3aVZhSmhHaTA2UGdIT29QaVdGTDlGSCttNU1LZDB6QkdUT0QyQWhYK0VkYllDOWJzRmp1bXlmVVRYd3NIbEM4OEx1SG9jcWRGM3dOOXhLd0VmNElLalQzZXIybjZDUkNIVmNFR0pQVExiQ1JEYmhyNkU0cTRTWTVGeEZRUjVUVlR5MzZJYndIVWUrdVpVV29XNzIwRXYraXRvTUZrSVZtaTdic2REcmxpSUNQT25xeTRLTUs0K3JNVFhZays0Y0podXR4VlJsM09rWHQzSVdJMEJDeDNnbXh3L05XdjJUSmh2bFc5dFFIbGRoWVRUTVp3Y0cvRXhkOHhUd3FKVjZGWlkxRGFRY09Edy9MSWdLZUt2R2FuQ0NCMFMrakhuc0xjUEdTL2NKRkFhL1NSSWdHdHZhOUV6WW9uYVFNUWt2dDExeDdCdHNKQWU5NW5nVmpUb3A0RHdTM3dENHZrd2dxOTRmODQ0d09YTFRCekwxM2NIbitwaHNFUkpocVJRdWM5SVlWL3RJdjBBb1JRYVU2ZkovNkE4MUNOa29wdHBrV2R1WXd1U0w0QVAxNEVrSUU3eG5ZS0tubW9EUVI1Q3dUbFFEU2Y2UWg0Q3lTVlMrZENtNmZxQURqdmtNOW5vVFkxT2wwbmpxd1Q5R0phaXdSVUxxY1JYSVkxQjlxRXNlbE9ueFdtRFRtdHJKcU9DSmNaY0ZZRW1IcHlOVGx4ZTB5bGdoeXBvbTZLVnJ3c2Nhd0UwVmlvenlkQWtTdzdIZ1Z3b0dQV2pDV0JBZ2ZqZ3Q0bGJuL3lVVUVsWDlVdHd1Mk10aU9QZVdpaHRvNWlPRDJ0VGl3THNBN2ZkZUNNYXdjY1lGZmg1ZXpTUzRpeUdXWCszOU0vY0VWNGhITTU1OFpVenBLN2ZoRDlpRVdYeURFWnNkWi9VeW05bTFseHk4M0VWVGwyRDBXZkhoMUVNR1gwM0tZOGx6YlZ3VWx2SEEzK1hnUkFNTEJ0VXpkODB5aW5KNmJDQWdsRlVMKzhaV0NCLzgrdWpLNEtRWGdGRkJIM05NcUJQeFQ3SzBuYlRLaEdtSWhJc2pMaXFnT2xIb0FLb1dTVkZ4TXVhQjIvamlVcUJmNUdKSFlKWnFZcFYzU2ZOWUlFUkN3QkIxTVBRQ1ZEN2dYY0J6c0tDUFZIdWxKRmE1dW5PejdzSnJOL3dyOC9xK0FhMWw5RGtWdUhOei91TzdreDlpRmlhREk4QlVMQnFJcVBLb1VwN0dNbGR6NWgrd1E5VU11LzIzYy81emNBNDJFRmJLdkhnL2Z6cnp3K0NpUno3NTJzdzd2LzY2MFNZazdBMzFFd0ZSbWUvcXVtY2Fpa3JKdFlSRjJIcDNndXo2NytGMWowaEdpUzlYd0NGZ1J6MlkyaUlieDRGeW0rZVN1RkJFUTJFQ2JmRURNNDdiNHRUM3o3Q3JoaE5uNlA4dDlWM2pWVUZwSmdieWNxQ0c1YkU5TFpCUC9nWUZ5dXVkNTlFU0lzdno4YjF2Z3JLYXd3eFhobTlqSXNhbWoyUUNURVNINGFZbnZlckFqeEV2WjBDbFlNWEl6RWU1UFpSZVhCL1BTRHBwQ29vbUpFQnVRUm9yTlFoaDA0aWdKRnNrQU1YVzNTeXNZcHFxd1NuemJjQmtqSzdIS3FTTkxDcnY4MTR4c2g2dy9SSjJJQ05Hc2hCc3Flc2ZWaVNnamRiejBaS2RMdDJjb21XbjZhRkpUdmFKRWNIaDRDSUZkSHNLcVNWT2g2Y1JFZ05saFYzako5ZFRPcXhYQ1Aza2NDWllRWWcrNjZvbFFSbkludHNrY3hTb3ZmNDRPM3JoWGJoUHVlOHpnOGZYRVJKQXp4UHo4SzIwOFlpc0x6RVROVDRUQmhoTUpVVTBTbnRLbzNWTDR1NkxDblpSdnlFZm1UcmYzT2xiOXlkRjVqdUVrUnkxRWtHU0lkT2pKblZnVEhvZUJQNkF3R1ZBK3NvTDBDOVJ4S3ZWZHNRcXVKSXduSUlTTDFXY1czTzE1M2pQWWZQNnlTMUlpUkdRSXpyVEFpYlVBOXduU0FJWEpVT3c0c2d6S1htZ3VKYWlsSEFKa2tBRnZid2tFeExZNTNEK3dDaDFhclVUQVcwcVVVcUYyWW0xazRNRi9kN3NMenk1RGh0bSttV1ZjM3ZwNndXT2x2aWU2RU10ODc0RmlOQ3Ayb0Y2bzdFNkV2U1lvVm53UnJoNm5XV29sRWRRQVlsSEx6NmlkV0NOdTczVER0eFFsZ3FsYmFKZ2RQMVQyVzVTMFRXRlNLM24xYlZXT08wWVhvMDNCYTBVRWhOTG5iOWo5UW5oUnQrdnZWY1NCSmgzSFVjZ1luUWYzVGZJZHE3eitLNHA4ZzlvclZkMDhaajErYTFVa01FWUVTWVptMWk0OERzdjFHZDF1LzBWNW5NalZITnRpcURENU44ajY4N3duWVhoaHVxbktNY1pWQzVNY3F5U0JVU0pJd3hFM0p6U0g4R0hsbE9OblZLNUgvd2huU0JYYVRQcitOK1o3YnludTlsREZZN3VaemEvZXUyb1NHQ2VDcXA2eXFkZUNYb2pndzNtY2FwSVN3cVZKUlVwVGFubHZJTlJyMDk1VjNkNmVUVENlMi9ER21vSUV4b21BUUpsMmx3ZGZKM2RhTTNoRUtYeU1JWU0va2NTOHlpdlMyY1hvbW9GaU5CNXVPTUovRit3OVRvQU4vcmNZamZEemRuaUhQNklpUVNWRVFPQ3hxaXVDS3l4d1hPMVFqYjF6eGR3bERiUUwxazFUZjZkQjdIQzhrRkdTb0RJaUlMQm5nWnB4cUFkZU42NmVHU1A3TWtEUm9uOXNpY3NpRlQ3cWJ6U0ZuWTduOTZsSlVDa1JFQ3A5OTJvTERLQVZMZy9mbDRjSW1JSXhONWN2ZlJ2REtkWGpvZEx6KzRwSjhGNXFBcEFRQVlFeHRjT0RiMXBnQ0oxNHpPRzlOK1lodzdnMFl0ZGRJMjl6VldlZnB1cEliYmNoSENJbEFpTHFjOVk0QVlDTmd4TENjVUFOSHB6eE1VRVBrOGxrSGc5WC8reGgwUS9lVTRSM1dQQk5KckNOZW1Oc0RSRVFzbzZCKzUrM3dEQWE0VjlXU21JK3ZtTElsUGJnaC9UZllnU2JLWTlJclNUQ0FOZ2VsdFcwVjFzS1BsbWFDRkpDSmRoc3dUZVl3RjBkTDNnMXRjTmJTd1JKQmg3TXdVQnR0Y0JZT3JBOXFlZy9DeGdxcWk2bVRab1E0cmdldzBacVo3ZWVDQWh3bnRlenhnalpobmZNelMwOExSOFJwSEpnZytYYy9iUHdIb25hMFd0REJJUXFMTCtjM25pVFkxeVRRdGRkczN2RCt5SnZRMTFXYWdldkpSRVFVaStKQnlldytvY0pHMXdldUhMR3h5ek8rZFY3eXp3ZTdoK29Fdlp1dGVBZHpVQUVQNEdmYjZCMjdsb1RZUUFsR2RMVWMvVG1RZ1FYWU9NT2F2OXBEQkVRcWt6eVFuTGp0c2hEZ0ovYmRGUGNLQ0tvRjl4RnlmdzE5Vml4Q2JnUzd6K29mYVhSUkJoQVNiTTN0N2FobnRpTXF3RFduVkQ3eDlRUVlaRVF3ajlhYmNhb25XQ3E0WGpoK1p3Zit3SnFmNWhhSWlCVWZjUGFLZXJSWUE5NGNJdkR3OE9vZmFBbFFneHpRcnhRaVlyVi9haTFEdGlFWVJBZWIxUGJ2U1ZDQ3FRZVo3T3J1QWdSUG93TnZZOEp3ejJvN2R3U0lTZkFjRytJZW41Uk8wOGpzSlZ4L3pSVTFxTzJhMHVFMG9UQS9KMnliWldtSGRobE16eWVRbHVvSllJaE9DTGNWKzBoU21tRlRoazI0Z0VFNWtCUjI2MGxnaUhJVFRVUFBnN0cvckVGRG1jVGRzaVZrd2Z2d0VJcGFqdTFSS2dJV0QwVzlSWUlMMkxUdlVyY0F4UERwMUhUaU5vbXRtQnFIendGa1gzSW90T21oZ2tXSjJJVGhvbXU1eCtKUjZEVTQ5OCtGajR5ZlVPRVBjeWNaTlVyUHhzRE9QNFBzQitjSy95M3RzN2ZQb1VlN0UvV0ZjRkJlSGFPalVKWXZVcElOMkREUUJUTndyQ0hlaXpicDBHUDY3cTdLYzJpUDJPWTlNZURXNWdkb2RSbTJPdGNCVDlQZGIyZzB6cCsrMVQrWUxGOXQ5dmJ6eEhoS25VYTlRVjFrWGM3MDZwTTV6K2dXbkZkQ0FROHhlWGhHZ2h6RG5kNnZSZFRqMEg3dE0vWVIrcTh1c0dlc2tTVDl3OTF2WEJXQWtzMzVWNGtEbitsK3QrUGt1b1hzcVN6L3p3TTBhaS9ZNXFlL3dmaFNwMGVHdnoyYkFBQUFBQkpSVTVFcmtKZ2dnPT0iLz4KCTwvZGVmcz4KCTxzdHlsZT4KCTwvc3R5bGU+Cgk8dXNlIGlkPSJCYWNrZ3JvdW5kIiBocmVmPSIjaW1nMSIgeD0iNiIgeT0iMCIvPgo8L3N2Zz4=";
 
                 // 给刚才添加的img添加事件
-                for(let imgObj of $("#matchItems").find('img')) {
+                for(let imgObj of registry.view.element.matchItems.find('img')) {
                     // 加载完成事件，去除加载背景
                     imgObj.onload = function(e) {
                         $(e.target).css({
@@ -3471,7 +3535,7 @@
                 registry.searchData.pos = 0;
             }
 
-            $("#matchItems").on("click","li > a",function(e) {
+            registry.view.element.matchItems.on("click","li > a",function(e) {
                 let targetObj = e.target;
                 // 如果当前标签是svg标签，那委托给父节点
                 while ( targetObj != null && !/^(a|A)$/.test(targetObj.tagName)) {
@@ -3603,14 +3667,11 @@
             const refresh = debounce(handler, 300)
             // 第一次触发 scroll 执行一次 fn，后续只有在停止滑动 1 秒后才执行函数 fn
             searchInputDocument.on('input', refresh)
-
-            // 初始化后将isInitializedView变量设置为true
-            isInitializedView = true;
         }
         function ensureViewHide() {
             // 隐藏视图
             // 如果视图还没有初始化，直接退出
-            if (!isInitializedView) return;
+            if (! registry.view.initialized) return;
             // 如果正在查看查看“简讯”，先退出简讯
             const nowMode = registry.view.seeNowMode();
             if(nowMode === registry.view.modeEnum.SHOW_ITEM_DETAIL) {
@@ -3625,15 +3686,15 @@
             // 让视图隐藏
             viewDocument.style.display = "none";
             // 将输入框内容置空,在置空前将值备份，好让未好得及的操作它
-            searchInputDocument.val("")
+            registry.view.element.input.val("")
             // 将之前搜索结果置空
-            matchItems.html("")
+            registry.view.element.matchItems.html("")
             // 隐藏文本显示视图
-            textView.css({
+            registry.view.element.textView.css({
                 "display":"none"
             })
             // 让搜索结果隐藏
-            matchResult.css({
+            registry.view.element.matchResult.css({
                 "display":"none"
             })
             // 视图隐藏-清理旧数据
@@ -3645,9 +3706,9 @@
             // 让视图可见
             viewDocument.style.display = "block";
             //聚焦
-            searchInputDocument.focus()
+            registry.view.element.input.focus()
             // 当输入框失去焦点时，隐藏视图
-            searchInputDocument.blur(function() {
+            registry.view.element.input.blur(function() {
                 const isLogoButtonPressedRef = registry.view.logo.isLogoButtonPressedRef
                 if(isLogoButtonPressedRef.value) {
                     console.logout("隐藏跳过，因为isLogoButtonPressedRef")
@@ -3672,7 +3733,7 @@
             if (isSetViewVisibility) {
                 // 让视图可见 >>>
                 // 如果还没初始化先初始化   // 初始化数据 initData();
-                if (!isInitializedView) {
+                if (! registry.view.initialized) {
                     // 初始化视图
                     initView();
                     // 初始化数据
