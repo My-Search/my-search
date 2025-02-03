@@ -1965,6 +1965,8 @@
   background-color: #f6f8fa;
   border-radius: 6px;
   overflow: auto;
+  padding:  3px 6px;
+  box-sizing: border-box;
 }
 /*结果项样式*/
 #matchResult li {
