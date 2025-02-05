@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         我的搜索
 // @namespace    http://tampermonkey.net/
-// @version      7.2.0
+// @version      7.2.1
 // @description  打造订阅式搜索，让我的搜索，只搜精品！
 // @license MIT
 // @author       zhuangjie
@@ -18,7 +18,6 @@
 
 // @require      https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js
 // @resource code-css https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css
-
 
 // @require https://update.greasyfork.org/scripts/501646/1429885/string-overlap-matching-degree.js
 // @noframes
@@ -71,12 +70,17 @@
     }
 
     // css resource加载器
-    function cssLoad(prefix = "",css = "",isReourceName = false) {
-        if(isReourceName) css = GM_getResourceText(css);
-        // 对css原始内容引入前缀
-        css = `${prefix && '.'}${prefix} {
+    function cssLoad(prefix,css = "",{isResourceName = false,replacePrefix}) {
+        if(isResourceName) css = GM_getResourceText(css);
+
+        if(replacePrefix && prefix) {
+           css = css.toReplaceAll(replacePrefix,prefix);
+        }else if(prefix) {
+          // 对css原始内容引入前缀
+          css = `.${prefix} {
            ${css}
-        }`;
+          }`;
+        }
         GM_addStyle(css);
         return prefix;
     }
@@ -102,7 +106,6 @@
     }
     // markdown转html 转换器 【1】
     // 更多配置项：https://github.com/showdownjs/showdown
-
     const converter = new showdown.Converter({
         // 将换行符解析为<br>
         simpleLineBreaks:true,
@@ -1812,6 +1815,7 @@
     color: #255ec8; /* 深蓝色字体加深 */
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); /* 增加阴影效果 */
 }
+
 .resultItem svg{
    width: 16px;
    height:16px;
@@ -1859,8 +1863,16 @@
 	color: #1a0dab !important;
     text-decoration:none;
 }
-
 /*自定义markdown的html样式*/
+#text_show>p>code {
+    padding: 2px 0.4em;
+    font-size: 95%;
+    background-color: rgba(188, 188, 188, 0.2);
+    border-radius: 5px;
+    line-height: normal;
+    font-family: SFMono-Regular,Consolas,'Liberation Mono',Menlo,monospace;
+    color: #558eda;
+}
 #my_search_input::placeholder {
   color: #757575;
 }
@@ -1869,18 +1881,14 @@
 	color: #202122;
 }
 /*让简述内容的li标签不受页面样式影响*/
-#text_show li {
-   list-style-type: decimal !important;
+#text_show > ul > li {
+   list-style-type: disc !important;
 }
-#text_show li>code,
-#text_show p>code {
-    padding: 2px 0.4em;
-    font-size: 95%;
-    background-color: rgba(188, 188, 188, 0.2);
-    border-radius: 5px;
-    line-height: normal;
-    font-family: SFMono-Regular,Consolas,'Liberation Mono',Menlo,monospace;
-    color: #558eda;
+#text_show > ul > li > ul > li {
+   list-style-type: circle !important;
+}
+#text_show > ol > li {
+   list-style-type: decimal !important;
 }
 /*当视图大于等于1400.1px时*/
 @media (min-width: 1400.1px) {
@@ -1930,43 +1938,42 @@
    display: block;
    width: 25px;
 }
+
+/*代码颜色*/
+#text_show code,#text_show pre{
+   color:#5f6368;
+   padding: 5px;
+}
+
+
 /* 滚动条整体宽度 */
 #text_show::-webkit-scrollbar,
-#text_show pre>code::-webkit-scrollbar {
+#text_show pre::-webkit-scrollbar {
   -webkit-appearance: none;
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 
 /* 滚动条滑槽样式 */
 #text_show::-webkit-scrollbar-track,
-#text_show pre>code::-webkit-scrollbar-track {
+#text_show pre::-webkit-scrollbar-track {
   background-color: #f1f1f1;
 }
 
 /* 滚动条样式 */
 #text_show::-webkit-scrollbar-thumb,
-#text_show pre>code::-webkit-scrollbar-thumb {
+#text_show pre::-webkit-scrollbar-thumb {
  background-color: #c1c1c1;
 }
 
 #text_show::-webkit-scrollbar-thumb:hover,
-#text_show pre>code::-webkit-scrollbar-thumb:hover {
+#text_show pre::-webkit-scrollbar-thumb:hover {
   background-color: #a8a8a8;
 }
 
 #text_show::-webkit-scrollbar-thumb:active,
-#text_show pre>code::-webkit-scrollbar-thumb:active {
+#text_show pre::-webkit-scrollbar-thumb:active {
   background-color: #a8a8a8;
-}
-/*代码块背景色-在白色时需要*/
-#text_show pre,
-#text_show pre>code {
-  background-color: #f6f8fa;
-  border-radius: 6px;
-  overflow: auto;
-  padding:  3px 6px;
-  box-sizing: border-box;
 }
 /*结果项样式*/
 #matchResult li {
@@ -2984,7 +2991,7 @@
                     </ol>
                 </div>
                 <!--加“markdown-body”是使用了github-markdown.css 样式！加在markdown文档父容器中-->
-                <div id="${textViewDocumentId}" class="${cssLoad("ms-markdown-body","markdown-css",true)} ${cssLoad("ms-code-body","code-css",true)}" style="min-height:auto !important;">
+                <div id="${textViewDocumentId}" class="${cssLoad("ms-markdown-body","markdown-css",{isResourceName:true, replacePrefix: 'markdown-body'})} ${cssLoad("ms-code-body","code-css",{isResourceName: true})}" style="min-height:auto !important;">
                 </div>
              </div>
          `)
