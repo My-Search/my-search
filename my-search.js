@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         我的搜索
 // @namespace    http://tampermonkey.net/
-// @version      7.3.0
+// @version      7.3.5
 // @description  打造订阅式搜索，让我的搜索，只搜精品！
 // @license MIT
 // @author       zhuangjie
@@ -96,7 +96,80 @@
         }
         return result;
     }
+    // 滚动到目标文本  可以指定容器
+    function scrollToText(text, index = 0, container = document.body) {
+        // 创建高亮样式（只需执行一次）
+        if (!document.getElementById('highlight-style')) {
+            const style = document.createElement('style');
+            style.id = 'highlight-style';
+            style.textContent = `.highlight-text { border-bottom: 2px solid red !important;color:red; }`;
+            document.head.appendChild(style);
+        }
 
+        // 处理容器参数
+        const containerElement = typeof container === 'string'
+        ? document.querySelector(container)
+        : container;
+
+        if (!containerElement) {
+            console.error('Container not found:', container);
+            return;
+        }
+
+        // 清理旧高亮
+        Array.from(containerElement.getElementsByClassName('highlight-text'))
+            .forEach(span => {
+            const textNode = document.createTextNode(span.textContent);
+            span.parentNode.replaceChild(textNode, span);
+        });
+
+        if (!text) return;
+
+        // 获取所有文本节点
+        const textNodes = [];
+        const walker = document.createTreeWalker(
+            containerElement,
+            NodeFilter.SHOW_TEXT,
+            { acceptNode: () => NodeFilter.FILTER_ACCEPT }
+        );
+        while (walker.nextNode()) textNodes.push(walker.currentNode);
+
+        // 查找所有匹配项
+        const matches = [];
+        const searchLen = text.length;
+        for (const node of textNodes) {
+            const nodeText = node.nodeValue;
+            let pos = 0;
+            while (pos <= nodeText.length - searchLen) {
+                const idx = nodeText.indexOf(text, pos);
+                if (idx === -1) break;
+                matches.push({ node, start: idx, end: idx + searchLen });
+                pos = idx + 1; // 允许重叠匹配
+            }
+        }
+
+        // 验证索引
+        if (index < 0 || index >= matches.length) {
+            console.error(`Index ${index} out of range (0-${matches.length - 1})`);
+            return;
+        }
+
+        // 处理目标匹配项
+        const { node, start, end } = matches[index];
+        const middle = node.splitText(start);
+        const after = middle.splitText(end - start);
+        const span = document.createElement('span');
+        span.className = 'highlight-text';
+        span.textContent = middle.nodeValue;
+        middle.parentNode.replaceChild(span, middle);
+
+        // 滚动到目标位置
+        span.scrollIntoView({
+            behavior: 'smooth',
+            block: 'center',
+            inline: 'nearest'
+        });
+    }
     // 重写console.log方法
     let originalLog = console.log;
     console.logout = function() {
@@ -760,6 +833,10 @@
                     textView.css({
                         "display":"block"
                     })
+                    waitViewRenderingComplete(() => {
+                        const currentKey = registry.searchData.searchHistory.currentKeyword();
+                        if(currentKey.trim().length > 3) scrollToText(currentKey,0,"#ms-page-body");
+                    });
                 }
             },
             // 搜索框logo控制
@@ -1944,7 +2021,6 @@
 /*代码颜色*/
 #text_show code,#text_show pre{
    color:#5f6368;
-   padding: 5px;
 }
 
 
