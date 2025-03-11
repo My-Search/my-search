@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         我的搜索
 // @namespace    http://tampermonkey.net/
-// @version      7.2.1
+// @version      7.3.0
 // @description  打造订阅式搜索，让我的搜索，只搜精品！
 // @license MIT
 // @author       zhuangjie
@@ -1129,6 +1129,8 @@
             searchProTag: "[可搜索]",
             links: {
                 stringifyForSearch(links) {
+                   if(links == null) return ''
+                   links = links.filter(link => link != null);
                    return links.reduce((acc, cur) => acc + `${cur.text}${cur.url}${cur.title}`, '');
                 }
             }
@@ -2189,7 +2191,7 @@
                     let point = 0; // 指的是上面的 current_build_search_item
                     let default_desc = "--无描述--"
                     function extractLinkInfo(str) {
-                       const regex = /\\[(.*?)\\]\\((https?:\\/\\/[^\\s]+)(?:\\s+"([^"]+)")?\\)/;
+                       const regex = /\\[(.*?)\\]\\((https?:\\/\\/[^\\s]+)\\s*(?:\\s+"([^"]+)?")?\\s*\\)/;
                        const match = str.match(regex);
                        if (match) {
                           return {
@@ -3289,14 +3291,14 @@
                     let currentMeetConditionItemSize = searchLevelData[0].length + searchLevelData[1].length + searchLevelData[2].length;
                     if(currentMeetConditionItemSize >= registry.searchData.showSize && searchUnits.length == 0 && registry.searchData.subSearch.isSubSearchMode() ) break;
                     */
-                    // 将数据放在指定搜索层级数据上
+                    // 将数据放在指定搜索层级数据上DeepSeek
+
+                    if(dataItem.title.includes("DeepSeek")) debugger;
                     if (
                         (( getPinyinByKeyword(dataItem.title,true).includes(pinyinKeyword) || dataItem.title.toUpperCase().includes(keyword) ) && searchLevelData[0].push(dataItem) )
                         || (( getPinyinByKeyword(dataItem.desc,true).includes(pinyinKeyword) || dataItem.desc.toUpperCase().includes(keyword)) && searchLevelData[1].push(dataItem) )
-                        || ( `${dataItem.links && registry.searchData.links.stringifyForSearch(dataItem.links)}${dataItem.resource}${dataItem.vassal}`.substring(0, 4096).toUpperCase().includes(keyword) && searchLevelData[2].push(dataItem) )
-                    ) {
-                        // 向满足条件的数据对象添加在总数据中的索引
-                    }
+                        || ( `${registry.searchData.links.stringifyForSearch(dataItem.links)}${dataItem.resource}${dataItem.vassal}`.substring(0, 4096).toUpperCase().includes(keyword) && searchLevelData[2].push(dataItem) )
+                    ) {} // 若满足条件的数据对象则会添加到对应的盒子中
                 }
                 let searchEnd = Date.now();
                 console.logout("常规搜索主逻辑耗时："+(searchEnd - searchBegin ) +"ms");
