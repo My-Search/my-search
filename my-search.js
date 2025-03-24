@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         我的搜索
 // @namespace    http://tampermonkey.net/
-// @version      7.3.5
+// @version      7.4.0
 // @description  打造订阅式搜索，让我的搜索，只搜精品！
 // @license MIT
 // @author       zhuangjie
@@ -1820,9 +1820,28 @@
   overflow: auto;
   text-align: left;
   color: #000000;
+  user-select: text !important; /* 允许用户选中复制 */
 }
 #text_show img {
    width: 100%;
+}
+#text_show .copy-btn {
+   position: absolute;
+   top: 8px;
+   right: 8px;
+   background: #7f7f7fa1;
+   color: white;
+   border: none;
+   padding: 3px 10px;
+   font-size: 12px;
+   cursor: pointer;
+   border-radius: 3px;
+   opacity: 0.8;
+   transition: opacity 0.3s;
+}
+
+#text_show .copy-btn:hover {
+  opacity: 1;
 }
 
 /*定义字体*/
@@ -2221,6 +2240,32 @@
         }
         // 如果使用 document.onkeydown 这种，只能有一个监听者
         $(document).keyup(handle);
+    }
+    function codeCopyMount(elementSelector) {
+        document.querySelectorAll(`${elementSelector} pre code`).forEach((codeBlock) => {
+            // 创建复制按钮
+            const copyButton = document.createElement("button");
+            copyButton.innerText = "复制";
+            copyButton.classList.add("copy-btn");
+
+            // 复制代码逻辑
+            copyButton.addEventListener("click", () => {
+                const text = codeBlock.innerText || codeBlock.textContent;
+                navigator.clipboard.writeText(text).then(() => {
+                    copyButton.innerText = "已复制";
+                    setTimeout(() => (copyButton.innerText = "复制"), 2000);
+                }).catch(err => {
+                    console.error("复制失败:", err);
+                });
+            });
+
+            // 让 <pre> 相对定位，以便按钮放在右上角
+            const pre = codeBlock.parentElement;
+            pre.style.position = "relative";
+
+            // 添加按钮到 <pre> 容器
+            pre.appendChild(copyButton);
+        });
     }
 
     // 【数据初始化】
@@ -3664,6 +3709,8 @@
                 }
                 if(hasVassal) {
                     showTextPage(itemData.title,"主项的相关/附加内容",itemData.vassal);
+                    // 挂载一键code复制
+                    codeCopyMount("#text_show");
                     return;
                 }else if(itemData.type == "script"){
                     // 是脚本，执行脚本
