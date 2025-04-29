@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         我的搜索
 // @namespace    http://tampermonkey.net/
-// @version      7.5.0
+// @version      7.6.0
 // @description  打造订阅式搜索，让我的搜索，只搜精品！
 // @license MIT
 // @author       zhuangjie
@@ -2476,7 +2476,7 @@
         let cdnrs = cache.get(registry.other.UPDATE_CDNS_CACHE_KEY);
         // 提供的加速模板（顺序会在后面的请求中进行重排序-请求错误反馈的使重排序）
         // protocol、domain、path、params
-        let initCdnrs = ["https://ghproxy.net/${rootUrl}${path}","https://ghps.cc/${rootUrl}${path}","https://github.moeyy.xyz/${rootUrl}${path}"];
+        let initCdnrs = []; // "https://github.moeyy.xyz/${rootUrl}${path}","https://ghproxy.net/${rootUrl}${path}"
         // 如果我们修改了最开始提供的加速模板，比如新添加/删除了一个会使用新的
         if(cdnrs == null || ! isArraysEqual(initCdnrs,cdnrs) ) {
             cdnrs = initCdnrs;
@@ -2533,7 +2533,7 @@
                 let {index,url,initUrl} = cdnRequestStatus??{};
                 // -2 表示加速链接+原始链接都不会请求成功（异常） ,null表示index状态已经是-2了还去请求返回null
                 if(index == null || index < -2 ) return;
-                request("GET",url,{query: {time: new Date().getTime()} ,config : {timeout: 5000} }).then(resolve).catch(()=>{
+                request("GET",url,{query: {} ,config : {timeout: 5000} }).then(resolve).catch(()=>{
                     console.log("CDN失败，不加速请求！");
                     // 反馈错误,调整请求顺序，避免错误还是访问
                     // 获取请求错误的根域名
@@ -2541,10 +2541,10 @@
                     // 根据根域名从模板中找出完整域名
                     let templates = allCdns.filter(item=>item.includes(domain));
                     // 反馈
-                    if(templates.length > 0 ) {
-                        if(index > 0 || index <= cache.get(registry.other.UPDATE_CDNS_CACHE_KEY).length ) feedbackError(registry.other.UPDATE_CDNS_CACHE_KEY,templates[0]);
-                    }
-                    console.logout("反馈重调整后：",cache.get(registry.other.UPDATE_CDNS_CACHE_KEY)); // 反馈的结果只会在下次起作用
+                    //  if(templates.length > 0 ) {
+                        // if(index > 0 || index <= cache.get(registry.other.UPDATE_CDNS_CACHE_KEY).length ) feedbackError(registry.other.UPDATE_CDNS_CACHE_KEY,templates[0]);
+                    // }
+                    // console.logout("反馈重调整后：",cache.get(registry.other.UPDATE_CDNS_CACHE_KEY)); // 反馈的结果只会在下次起作用
                     // 处理失败后的回调函数代码
                     rq(cdnPack({index,url,initUrl}));
                 })
