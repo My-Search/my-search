@@ -2337,7 +2337,7 @@
                           desc: ((matchData[2]==null || matchData[2] == "")?default_desc:matchData[2])
                        }
                        }catch(e) {
-                          debugger
+                          console.log('提取函数工作时遇到了问题:',e)
                        }
                     }
                     // 是否为空字符串，忽略空格/换行
@@ -3282,8 +3282,13 @@
 
                 // 看是不是item detail内容显示中，如果是回车发送send事件，否则才是结果集显示的回车选择
                 if(e && e.keyCode==13 && activeItem.find("a").length > 0 && !registry.script.tryRunTextViewHandler()){ // 回车
-                    // 点击当前活跃的项，点击
-                    activeItem.find("a")[0].click();
+                    if (e.ctrlKey) {
+                        // Ctrl + Enter 的操作
+                        activeItem.find(".vassal")[0]?.click();
+                    } else {
+                        // 点击当前活跃的项，点击
+                        activeItem.find("a")[0].click();
+                    }
                 }
                 // 取消冒泡
                 e.stopPropagation();
@@ -3413,8 +3418,6 @@
                     if(currentMeetConditionItemSize >= registry.searchData.showSize && searchUnits.length == 0 && registry.searchData.subSearch.isSubSearchMode() ) break;
                     */
                     // 将数据放在指定搜索层级数据上DeepSeek
-
-                    if(dataItem.title.includes("DeepSeek")) debugger;
                     if (
                         (( getPinyinByKeyword(dataItem.title,true).includes(pinyinKeyword) || dataItem.title.toUpperCase().includes(keyword) ) && searchLevelData[0].push(dataItem) )
                         || (( getPinyinByKeyword(dataItem.desc,true).includes(pinyinKeyword) || dataItem.desc.toUpperCase().includes(keyword)) && searchLevelData[1].push(dataItem) )
