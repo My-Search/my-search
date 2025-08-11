@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         我的搜索
 // @namespace    http://tampermonkey.net/
-// @version      7.7.0
+// @version      7.7.4
 // @description  打造订阅式搜索，让我的搜索，只搜精品！
 // @license MIT
 // @author       zhuangjie
@@ -307,6 +307,56 @@
             }
             return "";
         }
+    }
+    function removeDuplicates(objs, props = []) {
+        if (!Array.isArray(objs) || objs.length === 0) return [];
+
+        // 深度比较两个值是否相等
+        function deepEqual(a, b) {
+            if (a === b) {
+                // 处理0和-0的情况
+                return a !== 0 || 1 / a === 1 / b;
+            }
+
+            // 处理 NaN
+            if (Number.isNaN(a) && Number.isNaN(b)) return true;
+
+            if (typeof a !== 'object' || a === null ||
+                typeof b !== 'object' || b === null) {
+                return false;
+            }
+
+            const keysA = Object.keys(a);
+            const keysB = Object.keys(b);
+            if (keysA.length !== keysB.length) return false;
+
+            for (const key of keysA) {
+                if (!keysB.includes(key) || !deepEqual(a[key], b[key])) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        // 比较两个元素是否相等
+        function compareObjects(obj1, obj2) {
+            if (props.length > 0) {
+                // 按指定属性逐个深度比较
+                return props.every(p => deepEqual(obj1[p], obj2[p]));
+            } else {
+                return deepEqual(obj1, obj2);
+            }
+        }
+
+        let result = [];
+
+        for (const item of objs) {
+            if (!result.some(r => compareObjects(item, r))) {
+                result.push(item);
+            }
+        }
+
+        return result;
     }
 
     // 责任链对象工厂
@@ -1230,7 +1280,12 @@
                 // 挂载markdown
                 md2html,
                 // 挂载http request对象
-                request
+                request,
+                data: {
+                   get: () => [...registry.searchData.getData()],
+                   matchSearch: () => console.log('matchSearch函数未赋值'),
+                   distinct: (items) => removeDuplicates(items, ['title','desc'])
+                }
             },
             // 当值为undefined时表示会话未开始
             SESSION_MS_SCRIPT_ENV: undefined,
@@ -1569,42 +1624,7 @@
         }
         return isExpired;
     }
-    // 移除数组中重复元素的函数
-    function removeDuplicates(objs,selecter) {
-        let itemType = objs[0] == null?false:typeof objs[0];
-        // 比较两个属性相等
-        function compareObjects(obj1, obj2) {
-            if(selecter != null ) return selecter(obj1) == selecter(obj2);
-            if(itemType != "object" ) return obj1 == obj2;
-            // 如果是对象且selecter没有传入时，比较对象的全部属性
-            const keys1 = Object.keys(obj1);
-            const keys2 = Object.keys(obj2);
-
-            if (keys1.length !== keys2.length) {
-                return false;
-            }
-
-            for (let key of keys1) {
-                if (!(key in obj2) || obj1[key] !== obj2[key]) {
-                    return false;
-                }
-            }
-            return true;
-        }
-        for(let i = 0; i< objs.length; i++ ) {
-            let item1 = objs[i];
-            for(let j = i+1; j< objs.length; j++ ) {
-                let item2 = objs[j];
-                if(item2 == null ) continue;
-                if( compareObjects(item1,item2) ) {
-                    objs[i] = null;
-                    break;
-                }
-            }
-        }
-        // 去掉无效新数据（item == null）-- 必须先去重
-        return objs.filter((item, index) => item != null);
-    }
+    
     // 【追加原型函数】
     // 往字符原型中添加新的方法 matchFetch
     String.prototype.matchFetch=function (regex,callback) {
@@ -3026,7 +3046,7 @@
         }
         console.log("数据对比-总新数据：",[...newDataItems])
         // 总新增去重 (标记 - 过滤标记的 )
-        newDataItems = removeDuplicates(newDataItems,(item)=>item.title+item.desc);
+        newDataItems = removeDuplicates(newDataItems,['title','desc']);
         // 当新数据项大于registry.searchData.showSize时，进行截取
         if(! isHasLaftData) {
             // 如何是第一次安装，那不应该有新数据
@@ -3064,7 +3084,7 @@
         // 当前最新数据，用于搜索
         let newDataItems = cache.get(registry.searchData.SEARCH_NEW_ITEMS_KEY);
         // 去重
-        globalSearchData = removeDuplicates(globalSearchData,(item)=>item.title+item.desc)
+        globalSearchData = removeDuplicates(globalSearchData,['title','desc'])
         // 将 index 给 newDataItems ,不然new中的我们选择与实际选择的不一致问题 ！
         // 给全局数据创建索引
         globalSearchData.forEach((item,index)=>{item.index=index});
@@ -3483,6 +3503,40 @@
             }
             // 3、添加标题处理器 titleTagHandler
             registry.view.titleTagHandler.handlers.push(titleTagHandler)
+            // 字符串重叠匹配度搜索（类AI搜索）
+            async function stringOverlapMatchingDegreeSearch(rawKeyword) {
+                const endTis = registry.view.tis.beginTis("(;｀O´)o 匹配度模式搜索中...")
+                // 这里为什么要用异步，不果不会那上面设置的tis会vk得不到渲染，先保证上面已经渲染完成再执行下面函数
+                return await new Promise((resolve,reject)=>{
+                    waitViewRenderingComplete(() => {
+                        try {
+                            // 搜索逻辑开始
+                            //	`registry.searchData.getData()`会被排序desc
+                            // 为什么需要拷贝data，因为全局的搜索位置不能改变！！
+                            const searchBegin = Date.now();
+                            let searchResult = overlapMatchingDegreeForObjectArray(rawKeyword.toUpperCase(),[...registry.searchData.getData()], (item)=>{
+                                const str2ScopeMap = {}
+                                const { tags , cleaned } = extractTagsAndCleanContent(`${item.title}`);
+                                str2ScopeMap[cleaned.toUpperCase()] = 4;
+                                str2ScopeMap[`${item.describe}${tags.join()}`.toUpperCase()] = 2;
+                                str2ScopeMap[`${item.links && registry.searchData.links.stringifyForSearch(item.links)}${item.resource}${item.vassal}`.substring(0, 4096).toUpperCase()] = 1;
+                                return str2ScopeMap;
+                            },"desc",{sort:"desc",onlyHasScope:true});
+                            const searchEnd = Date.now();
+                            console.log("启动类AI搜索结果 ：",searchResult)
+                            console.logout("类AI搜索主逻辑耗时："+(searchEnd - searchBegin ) +"ms");
+                            resolve(searchResult)
+                        }catch (e) {
+                            console.error("类AI搜索异常！",e)
+                            resolve([])
+                        }finally {
+                            endTis()
+                        }
+                    })
+                })
+            }
+            // 将匹配搜索挂载给脚本应用使用
+            registry.script.MS_SCRIPT_ENV_TEMPLATE.matchSearch = stringOverlapMatchingDegreeSearch;
             // 给输入框加事件
             // 执行 debounce 函数返回新函数
             let handler = async function (e) {
@@ -3497,38 +3551,7 @@
                 // 添加到搜索历史（维护这个历史有用是为了子搜索模式的“进”-“出”）
                 registry.searchData.searchHistory.add(rawKeyword)
 
-                // 字符串重叠匹配度搜索（类AI搜索）
-                async function stringOverlapMatchingDegreeSearch(rawKeyword) {
-                    const endTis = registry.view.tis.beginTis("(;｀O´)o 匹配度模式搜索中...")
-                    // 这里为什么要用异步，不果不会那上面设置的tis会得不到渲染，先保证上面已经渲染完成再执行下面函数
-                    return await new Promise((resolve,reject)=>{
-                        waitViewRenderingComplete(() => {
-                            try {
-                                // 搜索逻辑开始
-                                //	`registry.searchData.getData()`会被排序desc
-                                // 为什么需要拷贝data，因为全局的搜索位置不能改变！！
-                                const searchBegin = Date.now();
-                                let searchResult = overlapMatchingDegreeForObjectArray(rawKeyword.toUpperCase(),[...registry.searchData.getData()], (item)=>{
-                                    const str2ScopeMap = {}
-                                    const { tags , cleaned } = extractTagsAndCleanContent(`${item.title}`);
-                                    str2ScopeMap[cleaned.toUpperCase()] = 4;
-                                    str2ScopeMap[`${item.describe}${tags.join()}`.toUpperCase()] = 2;
-                                    str2ScopeMap[`${item.links && registry.searchData.links.stringifyForSearch(item.links)}${item.resource}${item.vassal}`.substring(0, 4096).toUpperCase()] = 1;
-                                    return str2ScopeMap;
-                                },"desc",{sort:"desc",onlyHasScope:true});
-                                const searchEnd = Date.now();
-                                console.log("启动类AI搜索结果 ：",searchResult)
-                                console.logout("类AI搜索主逻辑耗时："+(searchEnd - searchBegin ) +"ms");
-                                resolve(searchResult)
-                            }catch (e) {
-                                console.error("类AI搜索异常！",e)
-                                resolve([])
-                            }finally {
-                                endTis()
-                            }
-                        })
-                    })
-                }
+
                 // 常规方式搜索（搜索逻辑入口）
                 async function search(rawKeyword,{isAccurateSearch = false} = {}) {
                     let processedKeyword = rawKeyword.trim().split(/\s+/).reverse().join(" ");
