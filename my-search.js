@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         我的搜索
 // @namespace    http://tampermonkey.net/
-// @version      7.7.4
+// @version      7.7.5
 // @description  打造订阅式搜索，让我的搜索，只搜精品！
 // @license MIT
 // @author       zhuangjie
@@ -3518,8 +3518,8 @@
                                 const str2ScopeMap = {}
                                 const { tags , cleaned } = extractTagsAndCleanContent(`${item.title}`);
                                 str2ScopeMap[cleaned.toUpperCase()] = 4;
-                                str2ScopeMap[`${item.describe}${tags.join()}`.toUpperCase()] = 2;
-                                str2ScopeMap[`${item.links && registry.searchData.links.stringifyForSearch(item.links)}${item.resource}${item.vassal}`.substring(0, 4096).toUpperCase()] = 1;
+                                str2ScopeMap[`${item.describe}${tags.join()}`.toUpperCase()] = 3;
+                                str2ScopeMap[`${item.links && registry.searchData.links.stringifyForSearch(item.links)}${item.resource}${item.vassal}`.substring(0, 4096).toUpperCase()] = 2.9;
                                 return str2ScopeMap;
                             },"desc",{sort:"desc",onlyHasScope:true});
                             const searchEnd = Date.now();
