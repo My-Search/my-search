@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         我的搜索
 // @namespace    http://tampermonkey.net/
-// @version      7.7.5
+// @version      7.8.0
 // @description  打造订阅式搜索，让我的搜索，只搜精品！
 // @license MIT
 // @author       zhuangjie
@@ -19,7 +19,7 @@
 // @resource code-css https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css
 
 // @require https://update.greasyfork.org/scripts/530877/1560004/ms-pinyin.js
-// @require https://update.greasyfork.org/scripts/501646/1429885/string-overlap-matching-degree.js
+// @require https://update.greasyfork.org/scripts/501646/1642272/string-overlap-matching-degree.js
 // @noframes
 
 // @grant        window.onurlchange
@@ -3517,11 +3517,11 @@
                             let searchResult = overlapMatchingDegreeForObjectArray(rawKeyword.toUpperCase(),[...registry.searchData.getData()], (item)=>{
                                 const str2ScopeMap = {}
                                 const { tags , cleaned } = extractTagsAndCleanContent(`${item.title}`);
-                                str2ScopeMap[cleaned.toUpperCase()] = 4;
-                                str2ScopeMap[`${item.describe}${tags.join()}`.toUpperCase()] = 3;
-                                str2ScopeMap[`${item.links && registry.searchData.links.stringifyForSearch(item.links)}${item.resource}${item.vassal}`.substring(0, 4096).toUpperCase()] = 2.9;
+                                str2ScopeMap[cleaned.toUpperCase()] = 9;
+                                str2ScopeMap[`${item.describe}${tags.join()}`.toUpperCase()] = 8;
+                                str2ScopeMap[`${registry.searchData.links.stringifyForSearch(item.links || [])}${item.resource}${item.vassal}`.substring(0, 4096).toUpperCase()] = 2;
                                 return str2ScopeMap;
-                            },"desc",{sort:"desc",onlyHasScope:true});
+                            },{onlyHasScope:true});
                             const searchEnd = Date.now();
                             console.log("启动类AI搜索结果 ：",searchResult)
                             console.logout("类AI搜索主逻辑耗时："+(searchEnd - searchBegin ) +"ms");
