@@ -19,7 +19,7 @@
 // @resource code-css https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css
 
 // @require https://update.greasyfork.org/scripts/530877/1560004/ms-pinyin.js
-// @require https://update.greasyfork.org/scripts/501646/1642272/string-overlap-matching-degree.js
+// @require https://update.greasyfork.org/scripts/501646/1642307/string-overlap-matching-degree.js
 // @noframes
 
 // @grant        window.onurlchange
@@ -3518,8 +3518,8 @@
                                 const str2ScopeMap = {}
                                 const { tags , cleaned } = extractTagsAndCleanContent(`${item.title}`);
                                 str2ScopeMap[cleaned.toUpperCase()] = 9;
-                                str2ScopeMap[`${item.describe}${tags.join()}`.toUpperCase()] = 8;
-                                str2ScopeMap[`${registry.searchData.links.stringifyForSearch(item.links || [])}${item.resource}${item.vassal}`.substring(0, 4096).toUpperCase()] = 2;
+                                str2ScopeMap[`${item.desc}${tags.join()}`.toUpperCase()] = 8;
+                                str2ScopeMap[`${registry.searchData.links.stringifyForSearch(item.links)}${item.resource}${item.vassal}`.substring(0, 4096).toUpperCase()] = 2;
                                 return str2ScopeMap;
                             },{onlyHasScope:true});
                             const searchEnd = Date.now();
