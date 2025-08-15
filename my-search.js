@@ -19,7 +19,7 @@
 // @resource code-css https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css
 
 // @require https://update.greasyfork.org/scripts/530877/1560004/ms-pinyin.js
-// @require https://update.greasyfork.org/scripts/501646/1642307/string-overlap-matching-degree.js
+// @require https://update.greasyfork.org/scripts/501646/1642319/string-overlap-matching-degree.js
 // @noframes
 
 // @grant        window.onurlchange
