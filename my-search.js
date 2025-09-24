@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         我的搜索
 // @namespace    http://tampermonkey.net/
-// @version      7.8.0
+// @version      7.8.5
 // @description  打造订阅式搜索，让我的搜索，只搜精品！
 // @license MIT
 // @author       zhuangjie
@@ -98,67 +98,119 @@
     }
     // 滚动到目标文本  可以指定容器
     function scrollToText(text, index = 0, container = document.body) {
-        // 创建高亮样式（只需执行一次）
-        if (!document.getElementById('highlight-style')) {
-            const style = document.createElement('style');
-            style.id = 'highlight-style';
-            style.textContent = `.highlight-text { border-bottom: 2px solid red !important;color:red; }`;
-            document.head.appendChild(style);
+        // 创建高亮样式（使用闭包确保只执行一次）
+        const createHighlightStyle = (() => {
+            let isCreated = false;
+            return () => {
+                if (!isCreated && !document.getElementById('highlight-style')) {
+                    const style = document.createElement('style');
+                    style.id = 'highlight-style';
+                    style.textContent = `.highlight-text { border-bottom: 2px solid red !important; color: red; }`;
+                    document.head.appendChild(style);
+                    isCreated = true;
+                }
+            };
+        })();
+
+        // 清理容器中的旧高亮
+        function clearHighlights(container) {
+            const highlights = container.getElementsByClassName('highlight-text');
+            // 从后往前删除，避免DOM集合动态变化导致的问题
+            for (let i = highlights.length - 1; i >= 0; i--) {
+                const span = highlights[i];
+                const textNode = document.createTextNode(span.textContent);
+                span.parentNode.replaceChild(textNode, span);
+            }
         }
 
-        // 处理容器参数
-        const containerElement = typeof container === 'string'
-        ? document.querySelector(container)
-        : container;
+        // 获取容器元素
+        function getContainerElement(container) {
+            if (typeof container === 'string') {
+                return document.querySelector(container);
+            }
+            if (container instanceof HTMLElement) {
+                return container;
+            }
+            return null;
+        }
 
+        // 早期返回：无搜索文本时直接清理并返回
+        if (!text) {
+            const containerElement = getContainerElement(container);
+            if (containerElement) clearHighlights(containerElement);
+            return;
+        }
+
+        // 初始化样式
+        createHighlightStyle();
+
+        // 获取并验证容器
+        const containerElement = getContainerElement(container);
         if (!containerElement) {
             console.error('Container not found:', container);
             return;
         }
 
         // 清理旧高亮
-        Array.from(containerElement.getElementsByClassName('highlight-text'))
-            .forEach(span => {
-            const textNode = document.createTextNode(span.textContent);
-            span.parentNode.replaceChild(textNode, span);
-        });
+        clearHighlights(containerElement);
 
-        if (!text) return;
-
-        // 获取所有文本节点
+        // 获取所有文本节点（增加过滤条件）
         const textNodes = [];
         const walker = document.createTreeWalker(
             containerElement,
             NodeFilter.SHOW_TEXT,
-            { acceptNode: () => NodeFilter.FILTER_ACCEPT }
+            {
+                acceptNode: (node) => {
+                    // 过滤空文本节点和script/style内容
+                    if (!node.nodeValue.trim() ||
+                        node.parentNode.tagName === 'SCRIPT' ||
+                        node.parentNode.tagName === 'STYLE') {
+                        return NodeFilter.FILTER_REJECT;
+                    }
+                    return NodeFilter.FILTER_ACCEPT;
+                }
+            }
         );
-        while (walker.nextNode()) textNodes.push(walker.currentNode);
+
+        while (walker.nextNode()) {
+            textNodes.push(walker.currentNode);
+        }
 
         // 查找所有匹配项
         const matches = [];
-        const searchLen = text.length;
-        for (const node of textNodes) {
+        const searchLength = text.length;
+        if (searchLength === 0) return;
+
+        for (let i = 0; i < textNodes.length; i++) {
+            const node = textNodes[i];
             const nodeText = node.nodeValue;
-            let pos = 0;
-            while (pos <= nodeText.length - searchLen) {
-                const idx = nodeText.indexOf(text, pos);
+            let position = 0;
+            const nodeTextLength = nodeText.length;
+
+            // 提前退出：文本长度小于搜索长度
+            if (nodeTextLength < searchLength) continue;
+
+            while (position <= nodeTextLength - searchLength) {
+                const idx = nodeText.indexOf(text, position);
                 if (idx === -1) break;
-                matches.push({ node, start: idx, end: idx + searchLen });
-                pos = idx + 1; // 允许重叠匹配
+
+                matches.push({ node, start: idx, end: idx + searchLength });
+                position = idx + 1; // 允许重叠匹配
             }
         }
 
-        // 验证索引
+        // 验证索引范围
         if (index < 0 || index >= matches.length) {
             console.error(`Index ${index} out of range (0-${matches.length - 1})`);
             return;
         }
 
-        // 处理目标匹配项
+        // 处理目标匹配项并高亮
         const { node, start, end } = matches[index];
         const middle = node.splitText(start);
         const after = middle.splitText(end - start);
         const span = document.createElement('span');
+
         span.className = 'highlight-text';
         span.textContent = middle.nodeValue;
         middle.parentNode.replaceChild(span, middle);
@@ -170,6 +222,8 @@
             inline: 'nearest'
         });
     }
+
+
     // 重写console.log方法
     let originalLog = console.log;
     console.logout = function() {
@@ -389,6 +443,7 @@
     }
     // 请求包装
     function request(type, url, { query, body,header = {},config ={}} = {}) {
+        query = { ...query, time: Date.now() }
         return new Promise(function(resolve, reject) {
             var formData = new FormData();
             var isFormData = false;
@@ -1107,7 +1162,7 @@
                             const items = clipboardData.items;
                             for (let i = 0; i < items.length; i++) {
                                 const file = items[i].getAsFile();
-                                if (! file.type.startsWith('text/')) this.push(file);
+                                if (file && ! file.type.startsWith('text/')) this.push(file);
                             }
                         }
                     });
@@ -2187,7 +2242,7 @@
     }
     // 判断是否为指定指令
     function isInstructions(cmd) {
-        let searchInputDocument = registry.view.element.input;
+        let searchInputDocument = registry.view.element?.input;
         if(searchInputDocument == null) return false;
         let regexString = "^\\s*:" + cmd + "\\s*$";
         let regex = new RegExp(regexString,"i");
