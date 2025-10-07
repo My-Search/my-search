@@ -2352,10 +2352,31 @@
         if(subscribeInfo == null ) {
             // 初始化订阅信息（初次）
             subscribeInfo = `
-              <tis::https://raw.githubusercontent.com/18476305640/xiaozhuang/dev/%E6%88%91%E7%9A%84%E6%90%9C%E7%B4%A2%E8%AE%A2%E9%98%85%E6%96%87%E4%BB%B6.txt />
+              <tis::https://raw.githubusercontent.com/My-Search/official-subscribe/refs/heads/dev/only-system-index.ms describe="我的搜索官方内置订阅之系统项" />
+
+              <tis::https://raw.githubusercontent.com/My-Search/official-subscribe/refs/heads/dev/index.ms describe="我的搜索官方内置订阅之作者zhuangjie订阅" />
            `;
             cache.set(subscribeKey,subscribeInfo);
+        }else {
+            // ===> 兼容旧版本代码
+            const lines = subscribeInfo.split('\n');
+            const updatedLines = lines.map(line =>
+                                           line.includes('18476305640')
+                                           ? `
+          <tis::https://raw.githubusercontent.com/My-Search/official-subscribe/refs/heads/dev/only-system-index.ms describe="我的搜索官方内置订阅之系统项" />
+          <tis::https://raw.githubusercontent.com/My-Search/official-subscribe/refs/heads/dev/index.ms describe="我的搜索官方内置订阅之作者zhuangjie订阅" />
+       `
+                                           : line
+                                          );
+
+            const updatedSubscribeInfo = updatedLines.join('\n');
+            if(updatedSubscribeInfo !== subscribeInfo) {
+                cache.set(subscribeKey, updatedSubscribeInfo);
+                subscribeInfo = updatedSubscribeInfo;
+            }
+            // <=== 兼容旧版本代码
         }
+        console.logout("subscribeInfo="+subscribeInfo)
         return subscribeInfo;
     }
     function editSubscribe(subscribe) {
