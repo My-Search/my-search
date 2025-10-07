@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         我的搜索
 // @namespace    http://tampermonkey.net/
-// @version      7.8.5
+// @version      7.9.0
 // @description  打造订阅式搜索，让我的搜索，只搜精品！
 // @license MIT
 // @author       zhuangjie
@@ -2748,12 +2748,12 @@
         }
         let processHistory = registry.searchData.processHistory; // 处理过哪些链接需要记住，避免重复
         if(processHistory.includes(resourcePageUrl)) return; // 判断
-        processHistory.push(resourcePageUrl); // 记录
         // 如果不根，且不是resourcePageUrl不是httpUrl,需要将resourcePageUrl（相对路径）根据parentResourcePageUrl(绝对路径)转为http url
         if( ! tisMetaInfo.root && !isHttpUrl(resourcePageUrl) ) {
             // if(parentResourcePageUrl == null) throw new Error(`订阅异常，相对路径: ${resourcePageUrl},没有父绝对路径!`);
             resourcePageUrl = resolveUrl(parentResourcePageUrl,resourcePageUrl);
         }
+        processHistory.push(resourcePageUrl); // 记录
         urlToText(resourcePageUrl).then(text => {
             if(tisTabFetchFunName == null) {
                 // --> 是配置 <--
