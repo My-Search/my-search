@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         我的搜索
 // @namespace    http://tampermonkey.net/
-// @version      7.9.0
+// @version      7.9.5
 // @description  打造订阅式搜索，让我的搜索，只搜精品！
 // @license MIT
 // @author       zhuangjie
@@ -749,6 +749,7 @@
             return this.token;
         },
         baseRequest(type,url,{query,body}={},header = {}) {
+            if(this.token && ! header.Authorization) header.Authorization = `Bearer ${this.token}`
             query = {...query}
             return request(type, url, { query,body,header });
         },
@@ -2352,10 +2353,9 @@
         if(subscribeInfo == null ) {
             // 初始化订阅信息（初次）
             subscribeInfo = `
-              <tis::https://raw.githubusercontent.com/My-Search/official-subscribe/refs/heads/dev/only-system-index.ms describe="我的搜索官方内置订阅之系统项" />
-
-              <tis::https://raw.githubusercontent.com/My-Search/official-subscribe/refs/heads/dev/index.ms describe="我的搜索官方内置订阅之作者zhuangjie订阅" />
-           `;
+              <tis::https://raw.githubusercontent.com/My-Search/official-subscribe/refs/heads/dev/only-system-index.ms title="官方订阅-系统项" describe="我的搜索官方内置订阅的系统项部分，含内置的应用与系统项" />
+              <tis::https://raw.githubusercontent.com/My-Search/official-subscribe/refs/heads/dev/index.ms title="官方作者zhuangjie订阅-小庄的收藏室" describe="我的搜索官方内置订阅之作者zhuangjie订阅，收藏了一些实用的软件、网站、教程" />
+           `.trim();
             cache.set(subscribeKey,subscribeInfo);
         }else {
             // ===> 兼容旧版本代码
@@ -2363,9 +2363,9 @@
             const updatedLines = lines.map(line =>
                                            line.includes('18476305640')
                                            ? `
-          <tis::https://raw.githubusercontent.com/My-Search/official-subscribe/refs/heads/dev/only-system-index.ms describe="我的搜索官方内置订阅之系统项" />
-          <tis::https://raw.githubusercontent.com/My-Search/official-subscribe/refs/heads/dev/index.ms describe="我的搜索官方内置订阅之作者zhuangjie订阅" />
-       `
+              <tis::https://raw.githubusercontent.com/My-Search/official-subscribe/refs/heads/dev/only-system-index.ms title="官方订阅-系统项" describe="我的搜索官方内置订阅的系统项部分，含内置的应用与系统项" />
+              <tis::https://raw.githubusercontent.com/My-Search/official-subscribe/refs/heads/dev/index.ms title="官方作者zhuangjie订阅-小庄的收藏室" describe="我的搜索官方内置订阅之作者zhuangjie订阅，收藏了一些实用的软件、网站、教程" />
+       `.trim()
                                            : line
                                           );
 
@@ -4252,6 +4252,9 @@
                          }
 
                       }
+                      .tis-button {
+                          flex-shrink: 0;
+                      }
                    }
                 }
             }
@@ -4331,10 +4334,8 @@
                 $(clearToken).css({"display":GithubAPI.getToken() == null?"none":"inline-block"})
                 // 更新可提交数
                 let tisList = await TisHub.getTisHubAllTis();
-                if(tisList != null && tisList.length != 0) {
-                    commitableTisList = TisHub.tisFilter(subscribe_text.value,tisList)??[]
-                    $(pushTis).find("span").text(commitableTisList.length);
-                }
+                commitableTisList = TisHub.tisFilter(subscribe_text.value,tisList) || []
+                $(pushTis).find("span").text(commitableTisList.length);
             }
             // 初始化subscribe_text的值
             subscribe_text.value = getSubscribe();
@@ -4384,35 +4385,38 @@
                 setPage("tis-hub");
             }
             // push到TisHub公共仓库中
-            pushTis.onclick =async function () {
+            pushTis.onclick = async function () {
                 if(! confirm("是否确认要提交到TisHub公共仓库？")) return;
                 if(commitableTisList == null || commitableTisList.length == 0) {
                     alert("经过与TisHub中订阅的比较，本地没有可提交的订阅！")
                     return;
                 }
+
                 if(GithubAPI.getToken(true) == null) {
                     alert("获取token失败，无法继续！");
                     return;
                 }
+
                 // 组装提交的body
-                let body = (()=>{
-                    let _body = "";
-                    for(let tis of commitableTisList) _body+=tis;
-                    return _body;
-                })();
-                if ( body == "") return;
-                let userInfo = await GithubAPI.setToken().getUserInfo();
-                if(userInfo == null) {
-                    alert("提交异常，请检查网络或提交的Token信息！")
-                    return;
-                }
-                GithubAPI.commitIssues({
-                    "title": userInfo.name+"的订阅",
-                    "body": body
-                }).then(response=>{
-                    refreshViewState();
+                try {
+                    let userInfo = await GithubAPI.setToken(/*自动申请获取Token*/).getUserInfo();
+                    if(userInfo == null) {
+                        throw new Error("请检查网络或提交的Token不可用！")
+                    }
+                    for(let singleTisText of commitableTisList) {
+                        let tisTextHandleChains = new PageTextHandleChains(singleTisText); // 每项是 { tagName、tagValue, ....attr }
+                        let tisMetaInfo = tisTextHandleChains.parseAllDesignatedSingTags("tis")[0]; // 只解析一个所以得到的只有一个
+                        if(tisMetaInfo == null) continue;
+                        await GithubAPI.commitIssues({
+                            "title": tisMetaInfo.title || `${userInfo.name}的订阅`,
+                            "body": singleTisText
+                        })
+                    }
                     alert("提交成功(issues)！感谢您的参与，脚本因你而更加精彩。")
-                }).catch(error=>alert("提交失败~"))
+                    refreshViewState();
+                }catch(e) {
+                    alert(`提交异常！原因：${e.message}`)
+                }
             }
             // 清理token
             clearToken.onclick = function(){
