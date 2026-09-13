@@ -6,6 +6,9 @@
 
 ## 1、😍基本使用
 ------
+**桌面版（Rust/体积小轻量/推荐）**: [下载](https://github.com/My-Search/my-search-desktop/releases)
+
+**原油猴版本：**
 
 1、首先需要安装浏览器[油猴插件](https://www.tampermonkey.net/index.php?browser=chrome&locale=zh)。
 
